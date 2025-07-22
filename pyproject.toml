@@ -47,6 +47,17 @@ dependencies = [
     "ollama>=0.1.0",
     "psutil>=7.0.0",
     "python-dotenv>=1.1.1",
+    # Web UI dependencies
+    "streamlit>=1.28.0",
+    "PyJWT>=2.8.0",
+    "cryptography>=41.0.0",
+    "requests>=2.31.0",
+    "plotly>=5.15.0",
+    "pandas>=2.0.0",
+    "streamlit-option-menu>=0.3.6",
+    "streamlit-authenticator>=0.2.3",
+    "Pillow>=10.0.0",
+    "python-dateutil>=2.8.2",
 ]
 
 [project.optional-dependencies]

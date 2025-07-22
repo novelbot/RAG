@@ -83,3 +83,14 @@ project/
 - **Do not use git**: This project requires alternative version control methods
 
 [Rest of the existing content remains unchanged]
+
+## Task Master AI Instructions
+**Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
+@./.taskmaster/CLAUDE.md
+
+## basic instructions
+- Use context7 MCP before you write the code.
+- Use sequential thinking MCP to build programming logic.
+- Use task-master MCP to create PRD before implementing the code.
+- Update in task-master when you finish the task.
+- Use playwright MCP to test and debug web user inferface.

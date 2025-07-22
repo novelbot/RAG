@@ -51,8 +51,6 @@ minio_data/
 
 # Task Master AI
 .taskmaster/
-tasks.json
-tasks/
 
 # Logs
 logs/
@@ -94,3 +92,10 @@ data/uploads/
 # Docker
 .dockerignore
 docker-compose.override.yml
+
+logs
+.env
+
+# Task files
+# tasks.json
+# tasks/ 

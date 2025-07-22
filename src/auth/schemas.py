@@ -23,6 +23,8 @@ class UserBase(BaseSchema):
     username: str = Field(..., min_length=3, max_length=50, description="Username")
     email: str = Field(..., description="Email address")
     full_name: Optional[str] = Field(None, max_length=100, description="Full name")
+    role: str = Field("user", description="User role (user, manager, admin)")
+    department: Optional[str] = Field(None, max_length=50, description="Department")
     is_active: bool = Field(True, description="Whether user is active")
     timezone: Optional[str] = Field("UTC", description="User timezone")
     bio: Optional[str] = Field(None, description="User biography")
@@ -54,6 +56,8 @@ class UserUpdate(BaseSchema):
     username: Optional[str] = Field(None, min_length=3, max_length=50)
     email: Optional[str] = None
     full_name: Optional[str] = Field(None, max_length=100)
+    role: Optional[str] = Field(None, description="User role")
+    department: Optional[str] = Field(None, max_length=50, description="Department")
     is_active: Optional[bool] = None
     is_superuser: Optional[bool] = None
     is_verified: Optional[bool] = None
