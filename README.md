@@ -61,20 +61,17 @@ uv sync --group dev
 # 환경 변수 템플릿 복사
 cp .env.example .env
 
-# API 키 설정
-# OPENAI_API_KEY, ANTHROPIC_API_KEY 등 추가
+# .env 파일에서 설정 수정
+vim .env
+
+# 필수 설정:
+# - 데이터베이스 연결 정보 (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
+# - Milvus 연결 정보 (MILVUS_HOST, MILVUS_PORT)
+# - LLM 및 임베딩 프로바이더 설정
+# - API 키 설정 (사용하는 프로바이더에 따라)
 ```
 
-### 3. 데이터베이스 설정
-
-```bash
-# 데이터베이스 설정 파일 수정
-vim configs/dev/config.yaml
-
-# 데이터베이스 및 Milvus 연결 설정
-```
-
-### 4. 애플리케이션 실행
+### 3. 애플리케이션 실행
 
 ```bash
 # 서버 시작
@@ -86,109 +83,85 @@ uv run rag-cli serve --reload
 
 ## ⚙️ 설정
 
+설정은 `.env` 파일을 통해 환경 변수로 관리됩니다. 설정 예시는 `.env.example` 파일을 참조하세요.
+
 ### 임베딩 설정
 
-```yaml
-embedding:
-  # OpenAI 임베딩 (유료)
-  provider: "openai"
-  model: "text-embedding-3-large"
-  api_key: "your-openai-api-key"
-  dimensions: 1536
-  
-  # Google 임베딩 (유료)
-  # provider: "google"
-  # model: "text-embedding-004"
-  # api_key: "your-google-api-key"
-  # dimensions: 768
-  
-  # Ollama 로컬 임베딩 (무료)
-  # provider: "ollama"
-  # model: "nomic-embed-text"
-  # base_url: "http://localhost:11434"
-  # dimensions: 768
+```bash
+# Ollama 로컬 임베딩 (무료) [권장]
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=jeffh/intfloat-multilingual-e5-large-instruct:f32
+EMBEDDING_API_KEY=
+
+# OpenAI 임베딩 (유료)
+# EMBEDDING_PROVIDER=openai
+# EMBEDDING_MODEL=text-embedding-3-large
+# EMBEDDING_API_KEY=your-openai-api-key
+
+# Google 임베딩 (유료)
+# EMBEDDING_PROVIDER=google
+# EMBEDDING_MODEL=text-embedding-004
+# EMBEDDING_API_KEY=your-google-api-key
 ```
 
 ### 데이터베이스 설정
 
-```yaml
-database:
-  host: "localhost"
-  port: 5432
-  name: "ragdb"
-  user: "postgres"
-  password: "password"
-  driver: "postgresql"
-  pool_size: 20
-  max_overflow: 10
-  pool_timeout: 30
+```bash
+# MySQL/MariaDB (기본값)
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=novelbot
+DB_USER=root
+DB_PASSWORD=password
+
+# PostgreSQL 사용 시
+# DB_HOST=localhost
+# DB_PORT=5432
+# DB_NAME=ragdb
+# DB_USER=postgres
+# DB_PASSWORD=password
 ```
 
 ### LLM 설정
 
-```yaml
-llm:
-  # 다중 LLM 프로바이더 설정
-  providers:
-    - provider: "openai"
-      model: "gpt-4"
-      api_key: "your-openai-api-key"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 1
-      enabled: true
-      
-    - provider: "gemini"
-      model: "gemini-2.0-flash-001"
-      api_key: "your-google-api-key"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 2
-      enabled: true
-      
-    - provider: "claude"
-      model: "claude-3-5-sonnet-latest"
-      api_key: "your-anthropic-api-key"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 3
-      enabled: true
-      
-    - provider: "ollama"
-      model: "llama3.2"
-      base_url: "http://localhost:11434"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 4
-      enabled: true
+```bash
+# Ollama 로컬 LLM (무료) [권장]
+LLM_PROVIDER=ollama
+LLM_MODEL=gemma3:27b-it-q8_0
+LLM_API_KEY=
 
-  # 로드 밸런싱 전략
-  load_balancing: "health_based"  # round_robin, random, least_used, fastest_response, health_based
-  max_retries: 3
-  retry_delay: 1.0
+# OpenAI (유료)
+# LLM_PROVIDER=openai
+# LLM_MODEL=gpt-3.5-turbo
+# LLM_API_KEY=your-openai-api-key
+
+# Anthropic Claude (유료)
+# LLM_PROVIDER=anthropic
+# LLM_MODEL=claude-3-5-sonnet-latest
+# LLM_API_KEY=your-anthropic-api-key
+
+# Google Gemini (유료)
+# LLM_PROVIDER=google
+# LLM_MODEL=gemini-2.0-flash-001
+# LLM_API_KEY=your-google-api-key
 ```
 
 ### Milvus 설정
 
-```yaml
-milvus:
-  host: "localhost"
-  port: 19530
-  user: "milvus"
-  password: "password"
-  secure: false
-  db_name: "default"
-  alias: "default"
-  max_retries: 3
-  retry_delay: 1.0
-  collection_name: "rag_vectors"
-  vector_dim: 1536
-  index_type: "IVF_FLAT"
-  metric_type: "IP"
-  nlist: 1024
-  rbac:
-    enable_rbac: true
-    default_permissions: ["read"]
+```bash
+MILVUS_HOST=localhost
+MILVUS_PORT=19530
+# 로컬 Milvus에서는 인증 없이 사용 가능
+MILVUS_USER=
+MILVUS_PASSWORD=
+```
+
+### API 서버 설정
+
+```bash
+API_HOST=0.0.0.0
+API_PORT=8000
+SECRET_KEY=your-secret-key-here
 ```
 
 ## 🔧 구현 현황
@@ -1481,23 +1454,17 @@ uv run python -m src.cli.main data cleanup --orphaned
 ### 설정 관리
 
 ```bash
-# 대화형 설정 마법사 (이제 Ollama 임베딩 지원)
-uv run python -m src.cli.main config wizard
+# .env 파일 템플릿 생성
+cp .env.example .env
 
-# 프로덕션 템플릿으로 설정 생성
-uv run python -m src.cli.main config wizard --template prod --output prod_config.yaml
+# 환경 변수를 통한 설정 관리
+# .env 파일을 직접 편집하여 설정 변경
 
-# 설정 파일 검증
-uv run python -m src.cli.main config validate --config-file config.yaml
+# 현재 설정 확인
+uv run python -m src.cli.main config show
 
-# 설정 내보내기
-uv run python -m src.cli.main config export --output backup_config.yaml
-
-# 민감한 정보 포함하여 내보내기
-uv run python -m src.cli.main config export --output full_config.yaml --include-sensitive
-
-# 설정 파일 비교
-uv run python -m src.cli.main config diff other_config.yaml
+# 설정 유효성 검증
+uv run python -m src.cli.main config validate
 ```
 
 ### CLI 고급 기능
@@ -1509,8 +1476,8 @@ uv run python -m src.cli.main --debug database status
 # 상세 로그와 함께 실행
 uv run python -m src.cli.main --verbose user list
 
-# 커스텀 설정 파일 사용
-uv run python -m src.cli.main --config-file custom.yaml database init
+# 커스텀 환경 파일 사용
+uv run python -m src.cli.main --env-file custom.env database init
 
 # 도움말 보기
 uv run python -m src.cli.main --help
@@ -1521,7 +1488,7 @@ uv run python -m src.cli.main user --help
 ### CLI 특징
 
 - **Rich 콘솔 출력**: 컬러풀한 테이블, 진행 표시줄, 상태 표시
-- **글로벌 옵션**: `--debug`, `--verbose`, `--config-file` 지원
+- **글로벌 옵션**: `--debug`, `--verbose`, `--env-file` 지원
 - **입력 검증**: 안전한 사용자 입력 및 확인 프롬프트
 - **에러 처리**: 포괄적인 에러 메시지 및 복구 제안
 - **진행 상태**: 장시간 작업에 대한 실시간 진행률 표시

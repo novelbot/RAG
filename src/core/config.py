@@ -4,28 +4,29 @@ Supports loading from YAML/JSON files and environment variables.
 """
 
 import os
-import yaml
-import json
-from typing import Any, Dict, Optional, Union
-from pathlib import Path
-from dataclasses import dataclass, field
-from loguru import logger
-from pydantic import BaseModel, Field, validator
+from typing import Dict, Optional
+from dataclasses import field
+from dotenv import load_dotenv
+from pydantic import BaseModel, field_validator
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class DatabaseConfig(BaseModel):
     """Database configuration settings"""
     host: str = "localhost"
-    port: int = 5432
-    name: str = "ragdb"
-    user: str = "postgres"
+    port: int = 3306
+    name: str = "novelbot"
+    user: str = "root"
     password: str = ""
-    driver: str = "postgresql"
+    driver: str = "mysql"
     pool_size: int = 5
     max_overflow: int = 10
     pool_timeout: int = 30
     
-    @validator('driver')
+    @field_validator('driver')
+    @classmethod
     def validate_driver(cls, v):
         allowed_drivers = ['postgresql', 'mysql', 'oracle', 'mssql', 'mariadb']
         if v not in allowed_drivers:
@@ -52,14 +53,15 @@ class MilvusConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     """LLM provider configuration"""
-    provider: str = "openai"
-    model: str = "gpt-3.5-turbo"
+    provider: str = "ollama"
+    model: str = "gemma3:27b-it-q8_0"
     api_key: str = ""
     base_url: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 1000
     
-    @validator('provider')
+    @field_validator('provider')
+    @classmethod
     def validate_provider(cls, v):
         allowed_providers = ['openai', 'anthropic', 'google', 'ollama']
         if v not in allowed_providers:
@@ -69,16 +71,17 @@ class LLMConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     """Embedding model configuration"""
-    provider: str = "openai"
-    model: str = "text-embedding-ada-002"
+    provider: str = "ollama"
+    model: str = "jeffh/intfloat-multilingual-e5-large-instruct:f32"
     api_key: str = ""
     base_url: Optional[str] = None
-    dimension: int = 1536
+    dimension: int = 1024
     batch_size: int = 100
     
-    @validator('provider')
+    @field_validator('provider')
+    @classmethod
     def validate_provider(cls, v):
-        allowed_providers = ['openai', 'huggingface', 'sentence-transformers']
+        allowed_providers = ['openai', 'huggingface', 'sentence-transformers', 'ollama']
         if v not in allowed_providers:
             raise ValueError(f"Provider must be one of: {allowed_providers}")
         return v
@@ -132,7 +135,8 @@ class RAGConfig(BaseModel):
     rerank_enabled: bool = True
     ensemble_models: list = field(default_factory=list)
     
-    @validator('mode')
+    @field_validator('mode')
+    @classmethod
     def validate_mode(cls, v):
         if v not in ['single', 'multi']:
             raise ValueError("Mode must be 'single' or 'multi'")
@@ -159,47 +163,17 @@ class AppConfig(BaseModel):
 
 
 class ConfigManager:
-    """Configuration manager for loading and managing app settings"""
+    """Configuration manager for loading and managing app settings from environment variables"""
     
-    def __init__(self, config_file: Optional[str] = None):
-        self.config_file = config_file or self._get_default_config_file()
+    def __init__(self):
         self._config: Optional[AppConfig] = None
-        
-    def _get_default_config_file(self) -> str:
-        """Get default configuration file based on environment"""
-        env = os.getenv('APP_ENV', 'development')
-        return f"configs/{env}/config.yaml"
     
     def load_config(self) -> AppConfig:
-        """Load configuration from file and environment variables"""
+        """Load configuration from environment variables with sensible defaults"""
         if self._config is None:
-            self._config = self._load_from_file()
+            self._config = AppConfig()
             self._override_from_env()
         return self._config
-    
-    def _load_from_file(self) -> AppConfig:
-        """Load configuration from YAML or JSON file"""
-        config_path = Path(self.config_file)
-        
-        if not config_path.exists():
-            logger.warning(f"Configuration file {config_path} not found, using defaults")
-            return AppConfig()
-        
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                if config_path.suffix.lower() == '.yaml' or config_path.suffix.lower() == '.yml':
-                    data = yaml.safe_load(f)
-                elif config_path.suffix.lower() == '.json':
-                    data = json.load(f)
-                else:
-                    raise ValueError(f"Unsupported config file format: {config_path.suffix}")
-                
-                return AppConfig(**data)
-                
-        except Exception as e:
-            logger.error(f"Error loading configuration file: {e}")
-            logger.warning("Using default configuration")
-            return AppConfig()
     
     def _override_from_env(self) -> None:
         """Override configuration values from environment variables"""
@@ -208,94 +182,73 @@ class ConfigManager:
         
         # Database overrides
         if os.getenv('DB_HOST'):
-            self._config.database.host = os.getenv('DB_HOST')
+            self._config.database.host = os.getenv('DB_HOST', self._config.database.host)
         if os.getenv('DB_PORT'):
-            self._config.database.port = int(os.getenv('DB_PORT'))
+            self._config.database.port = int(os.getenv('DB_PORT', str(self._config.database.port)))
         if os.getenv('DB_NAME'):
-            self._config.database.name = os.getenv('DB_NAME')
+            self._config.database.name = os.getenv('DB_NAME', self._config.database.name)
         if os.getenv('DB_USER'):
-            self._config.database.user = os.getenv('DB_USER')
+            self._config.database.user = os.getenv('DB_USER', self._config.database.user)
         if os.getenv('DB_PASSWORD'):
-            self._config.database.password = os.getenv('DB_PASSWORD')
+            self._config.database.password = os.getenv('DB_PASSWORD', self._config.database.password)
         
         # Milvus overrides
         if os.getenv('MILVUS_HOST'):
-            self._config.milvus.host = os.getenv('MILVUS_HOST')
+            self._config.milvus.host = os.getenv('MILVUS_HOST', self._config.milvus.host)
         if os.getenv('MILVUS_PORT'):
-            self._config.milvus.port = int(os.getenv('MILVUS_PORT'))
+            self._config.milvus.port = int(os.getenv('MILVUS_PORT', str(self._config.milvus.port)))
         if os.getenv('MILVUS_USER'):
-            self._config.milvus.user = os.getenv('MILVUS_USER')
+            self._config.milvus.user = os.getenv('MILVUS_USER', self._config.milvus.user)
         if os.getenv('MILVUS_PASSWORD'):
-            self._config.milvus.password = os.getenv('MILVUS_PASSWORD')
+            self._config.milvus.password = os.getenv('MILVUS_PASSWORD', self._config.milvus.password)
         
         # LLM overrides
         if os.getenv('LLM_PROVIDER'):
-            self._config.llm.provider = os.getenv('LLM_PROVIDER')
+            self._config.llm.provider = os.getenv('LLM_PROVIDER', self._config.llm.provider)
         if os.getenv('LLM_MODEL'):
-            self._config.llm.model = os.getenv('LLM_MODEL')
+            self._config.llm.model = os.getenv('LLM_MODEL', self._config.llm.model)
         if os.getenv('LLM_API_KEY'):
-            self._config.llm.api_key = os.getenv('LLM_API_KEY')
+            self._config.llm.api_key = os.getenv('LLM_API_KEY', self._config.llm.api_key)
         if os.getenv('OPENAI_API_KEY'):
-            self._config.llm.api_key = os.getenv('OPENAI_API_KEY')
+            self._config.llm.api_key = os.getenv('OPENAI_API_KEY', self._config.llm.api_key)
         if os.getenv('ANTHROPIC_API_KEY'):
-            self._config.llm.api_key = os.getenv('ANTHROPIC_API_KEY')
+            self._config.llm.api_key = os.getenv('ANTHROPIC_API_KEY', self._config.llm.api_key)
         if os.getenv('GOOGLE_API_KEY'):
-            self._config.llm.api_key = os.getenv('GOOGLE_API_KEY')
+            self._config.llm.api_key = os.getenv('GOOGLE_API_KEY', self._config.llm.api_key)
         
         # Embedding overrides
         if os.getenv('EMBEDDING_PROVIDER'):
-            self._config.embedding.provider = os.getenv('EMBEDDING_PROVIDER')
+            self._config.embedding.provider = os.getenv('EMBEDDING_PROVIDER', self._config.embedding.provider)
         if os.getenv('EMBEDDING_MODEL'):
-            self._config.embedding.model = os.getenv('EMBEDDING_MODEL')
+            self._config.embedding.model = os.getenv('EMBEDDING_MODEL', self._config.embedding.model)
         if os.getenv('EMBEDDING_API_KEY'):
-            self._config.embedding.api_key = os.getenv('EMBEDDING_API_KEY')
+            self._config.embedding.api_key = os.getenv('EMBEDDING_API_KEY', self._config.embedding.api_key)
         
         # Auth overrides
         if os.getenv('SECRET_KEY'):
-            self._config.auth.secret_key = os.getenv('SECRET_KEY')
+            self._config.auth.secret_key = os.getenv('SECRET_KEY', self._config.auth.secret_key)
         
         # API overrides
         if os.getenv('API_HOST'):
-            self._config.api.host = os.getenv('API_HOST')
+            self._config.api.host = os.getenv('API_HOST', self._config.api.host)
         if os.getenv('API_PORT'):
-            self._config.api.port = int(os.getenv('API_PORT'))
+            self._config.api.port = int(os.getenv('API_PORT', str(self._config.api.port)))
         
         # App overrides
         if os.getenv('APP_ENV'):
-            self._config.environment = os.getenv('APP_ENV')
+            self._config.environment = os.getenv('APP_ENV', self._config.environment)
         if os.getenv('DEBUG'):
-            self._config.debug = os.getenv('DEBUG').lower() == 'true'
+            debug_value = os.getenv('DEBUG', 'false')
+            self._config.debug = debug_value.lower() == 'true'
     
     def get_config(self) -> AppConfig:
         """Get current configuration"""
         return self.load_config()
     
     def reload_config(self) -> AppConfig:
-        """Reload configuration from file"""
+        """Reload configuration from environment variables"""
         self._config = None
         return self.load_config()
-    
-    def save_config(self, config: AppConfig, file_path: Optional[str] = None) -> None:
-        """Save configuration to file"""
-        save_path = file_path or self.config_file
-        config_dict = config.dict()
-        
-        try:
-            Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(save_path, 'w', encoding='utf-8') as f:
-                if save_path.endswith('.yaml') or save_path.endswith('.yml'):
-                    yaml.dump(config_dict, f, default_flow_style=False, indent=2)
-                elif save_path.endswith('.json'):
-                    json.dump(config_dict, f, indent=2)
-                else:
-                    raise ValueError(f"Unsupported file format: {save_path}")
-                    
-            logger.info(f"Configuration saved to {save_path}")
-            
-        except Exception as e:
-            logger.error(f"Error saving configuration: {e}")
-            raise
 
 
 # Global configuration instance

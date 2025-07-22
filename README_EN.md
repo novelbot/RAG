@@ -69,20 +69,17 @@ uv sync --group dev
 # Copy environment template
 cp .env.example .env
 
-# Configure API keys
-# Add OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
+# Edit .env file for configuration
+vim .env
+
+# Required settings:
+# - Database connection information (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
+# - Milvus connection information (MILVUS_HOST, MILVUS_PORT)
+# - LLM and embedding provider settings
+# - API keys (depending on providers used)
 ```
 
-### 3. Database Setup
-
-```bash
-# Configure database settings
-vim configs/dev/config.yaml
-
-# Set up database and Milvus connections
-```
-
-### 4. Run Application
+### 3. Run Application
 
 ```bash
 # Start the server
@@ -94,109 +91,85 @@ uv run rag-cli serve --reload
 
 ## ⚙️ Configuration
 
+Configuration is managed through environment variables using the `.env` file. See `.env.example` for configuration examples.
+
 ### Embedding Configuration
 
-```yaml
-embedding:
-  # OpenAI Embeddings (Paid)
-  provider: "openai"
-  model: "text-embedding-3-large"
-  api_key: "your-openai-api-key"
-  dimensions: 1536
-  
-  # Google Embeddings (Paid)
-  # provider: "google"
-  # model: "text-embedding-004"
-  # api_key: "your-google-api-key"
-  # dimensions: 768
-  
-  # Ollama Local Embeddings (Free)
-  # provider: "ollama"
-  # model: "nomic-embed-text"
-  # base_url: "http://localhost:11434"
-  # dimensions: 768
+```bash
+# Ollama Local Embeddings (Free) [RECOMMENDED]
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=jeffh/intfloat-multilingual-e5-large-instruct:f32
+EMBEDDING_API_KEY=
+
+# OpenAI Embeddings (Paid)
+# EMBEDDING_PROVIDER=openai
+# EMBEDDING_MODEL=text-embedding-3-large
+# EMBEDDING_API_KEY=your-openai-api-key
+
+# Google Embeddings (Paid)
+# EMBEDDING_PROVIDER=google
+# EMBEDDING_MODEL=text-embedding-004
+# EMBEDDING_API_KEY=your-google-api-key
 ```
 
 ### Database Configuration
 
-```yaml
-database:
-  host: "localhost"
-  port: 5432
-  name: "ragdb"
-  user: "postgres"
-  password: "password"
-  driver: "postgresql"
-  pool_size: 20
-  max_overflow: 10
-  pool_timeout: 30
+```bash
+# MySQL/MariaDB (Default)
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=novelbot
+DB_USER=root
+DB_PASSWORD=password
+
+# For PostgreSQL usage
+# DB_HOST=localhost
+# DB_PORT=5432
+# DB_NAME=ragdb
+# DB_USER=postgres
+# DB_PASSWORD=password
 ```
 
 ### LLM Configuration
 
-```yaml
-llm:
-  # Multi-LLM Provider Configuration
-  providers:
-    - provider: "openai"
-      model: "gpt-4"
-      api_key: "your-openai-api-key"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 1
-      enabled: true
-      
-    - provider: "gemini"
-      model: "gemini-2.0-flash-001"
-      api_key: "your-google-api-key"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 2
-      enabled: true
-      
-    - provider: "claude"
-      model: "claude-3-5-sonnet-latest"
-      api_key: "your-anthropic-api-key"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 3
-      enabled: true
-      
-    - provider: "ollama"
-      model: "llama3.2"
-      base_url: "http://localhost:11434"
-      temperature: 0.7
-      max_tokens: 1000
-      priority: 4
-      enabled: true
+```bash
+# Ollama Local LLM (Free) [RECOMMENDED]
+LLM_PROVIDER=ollama
+LLM_MODEL=gemma3:27b-it-q8_0
+LLM_API_KEY=
 
-  # Load Balancing Strategy
-  load_balancing: "health_based"  # round_robin, random, least_used, fastest_response, health_based
-  max_retries: 3
-  retry_delay: 1.0
+# OpenAI (Paid)
+# LLM_PROVIDER=openai
+# LLM_MODEL=gpt-3.5-turbo
+# LLM_API_KEY=your-openai-api-key
+
+# Anthropic Claude (Paid)
+# LLM_PROVIDER=anthropic
+# LLM_MODEL=claude-3-5-sonnet-latest
+# LLM_API_KEY=your-anthropic-api-key
+
+# Google Gemini (Paid)
+# LLM_PROVIDER=google
+# LLM_MODEL=gemini-2.0-flash-001
+# LLM_API_KEY=your-google-api-key
 ```
 
 ### Milvus Configuration
 
-```yaml
-milvus:
-  host: "localhost"
-  port: 19530
-  user: "milvus"
-  password: "password"
-  secure: false
-  db_name: "default"
-  alias: "default"
-  max_retries: 3
-  retry_delay: 1.0
-  collection_name: "rag_vectors"
-  vector_dim: 1536
-  index_type: "IVF_FLAT"
-  metric_type: "IP"
-  nlist: 1024
-  rbac:
-    enable_rbac: true
-    default_permissions: ["read"]
+```bash
+MILVUS_HOST=localhost
+MILVUS_PORT=19530
+# Local Milvus can be used without authentication
+MILVUS_USER=
+MILVUS_PASSWORD=
+```
+
+### API Server Configuration
+
+```bash
+API_HOST=0.0.0.0
+API_PORT=8000
+SECRET_KEY=your-secret-key-here
 ```
 
 ## 🔧 Implementation Status
@@ -1471,23 +1444,17 @@ uv run python -m src.cli.main data cleanup --orphaned
 ### Configuration Management
 
 ```bash
-# Interactive configuration wizard (now supports Ollama embeddings)
-uv run python -m src.cli.main config wizard
+# Create .env file template
+cp .env.example .env
 
-# Create production configuration
-uv run python -m src.cli.main config wizard --template prod --output prod_config.yaml
+# Environment variable-based configuration management
+# Edit .env file directly to change settings
 
-# Validate configuration file
-uv run python -m src.cli.main config validate --config-file config.yaml
+# Show current configuration
+uv run python -m src.cli.main config show
 
-# Export current configuration
-uv run python -m src.cli.main config export --output backup_config.yaml
-
-# Export with sensitive information
-uv run python -m src.cli.main config export --output full_config.yaml --include-sensitive
-
-# Compare configuration files
-uv run python -m src.cli.main config diff other_config.yaml
+# Validate configuration
+uv run python -m src.cli.main config validate
 ```
 
 ### Advanced CLI Features
@@ -1499,8 +1466,8 @@ uv run python -m src.cli.main --debug database status
 # Run with verbose logging
 uv run python -m src.cli.main --verbose user list
 
-# Use custom configuration file
-uv run python -m src.cli.main --config-file custom.yaml database init
+# Use custom environment file
+uv run python -m src.cli.main --env-file custom.env database init
 
 # Get help
 uv run python -m src.cli.main --help
@@ -1511,7 +1478,7 @@ uv run python -m src.cli.main user --help
 ### CLI Features
 
 - **Rich Console Output**: Colorful tables, progress bars, status indicators
-- **Global Options**: Support for `--debug`, `--verbose`, `--config-file`
+- **Global Options**: Support for `--debug`, `--verbose`, `--env-file`
 - **Input Validation**: Safe user input and confirmation prompts
 - **Error Handling**: Comprehensive error messages and recovery suggestions
 - **Progress Tracking**: Real-time progress indicators for long-running operations
