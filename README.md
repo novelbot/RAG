@@ -1,6 +1,6 @@
 # RAG 서버 (벡터 데이터베이스 지원)
 
-Milvus 벡터 데이터베이스를 기반으로 한 프로덕션 레디 RAG(Retrieval-Augmented Generation) 서버입니다. 다중 LLM 지원과 포괄적인 데이터베이스 관리 기능을 제공합니다.
+Milvus 벡터 데이터베이스를 기반으로 한 프로덕션 레디 RAG(Retrieval-Augmented Generation) 서버입니다. 다중 LLM 지원과 포괄적인 데이터베이스 관리 기능을 제공합니다!
 
 ## 🚀 주요 기능
 
