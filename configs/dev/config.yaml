@@ -1,0 +1,81 @@
+app_name: "RAG Server"
+version: "0.1.0"
+environment: "development"
+debug: true
+
+database:
+  host: "localhost"
+  port: 5432
+  name: "ragdb_dev"
+  user: "postgres"
+  password: "password"
+  driver: "postgresql"
+  pool_size: 5
+  max_overflow: 10
+  pool_timeout: 30
+
+milvus:
+  host: "localhost"
+  port: 19530
+  user: ""
+  password: ""
+  secure: false
+  collection_name: "rag_vectors_dev"
+  index_type: "IVF_FLAT"
+  metric_type: "IP"
+  nlist: 1024
+
+llm:
+  provider: "openai"
+  model: "gpt-3.5-turbo"
+  api_key: ""
+  base_url: null
+  temperature: 0.7
+  max_tokens: 1000
+
+embedding:
+  provider: "openai"
+  model: "text-embedding-ada-002"
+  api_key: ""
+  base_url: null
+  dimension: 1536
+  batch_size: 100
+
+auth:
+  secret_key: "dev-secret-key-change-in-production"
+  algorithm: "HS256"
+  access_token_expire_minutes: 60
+  refresh_token_expire_days: 7
+  enable_rbac: true
+  enable_row_level_security: true
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+  reload: true
+  debug: true
+  cors_origins: ["*"]
+  rate_limit: 1000
+
+logging:
+  level: "DEBUG"
+  format: "{time} | {level} | {message}"
+  file_path: "logs/app.log"
+  max_size: "10 MB"
+  rotation: "daily"
+  retention: "7 days"
+
+data_source:
+  rdb_connections: {}
+  file_paths: []
+  sync_interval: 3600
+  chunk_size: 1000
+  chunk_overlap: 200
+
+rag:
+  mode: "single"
+  retrieval_k: 5
+  similarity_threshold: 0.7
+  rerank_enabled: true
+  ensemble_models: []

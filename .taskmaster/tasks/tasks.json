@@ -1,0 +1,1122 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Setup Project Structure and Environment",
+        "description": "Initialize project with uv, create modular directory structure, and setup basic configuration management",
+        "details": "Create project structure with directories: src/, tests/, configs/, docs/. Initialize uv virtual environment with pyproject.toml. Setup basic configuration system using YAML/JSON files for database connections, API keys, and system settings. Create main.py entry point and __init__.py files for proper package structure.",
+        "testStrategy": "Unit tests for configuration loading, environment setup validation, and directory structure verification",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create project directory structure",
+            "description": "Set up the complete project directory structure with all required folders and files",
+            "dependencies": [],
+            "details": "Create directories: src/, tests/, configs/, docs/, logs/. Initialize main.py entry point and __init__.py files for proper package structure. Create subdirectories: src/api/, src/core/, src/models/, src/utils/, tests/unit/, tests/integration/, configs/dev/, configs/prod/",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Initialize uv virtual environment",
+            "description": "Set up uv virtual environment with pyproject.toml configuration",
+            "dependencies": [
+              1
+            ],
+            "details": "Install uv if not present. Initialize uv virtual environment in project directory. Create pyproject.toml with project metadata, dependencies, and build configuration. Configure development dependencies for testing, linting, and formatting",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement configuration system",
+            "description": "Create configuration management system using YAML/JSON files",
+            "dependencies": [
+              2
+            ],
+            "details": "Create config.py module for loading configuration from YAML/JSON files. Implement configuration classes for database connections, API keys, and system settings. Add environment-specific configurations (dev, staging, prod). Create configuration validation and error handling",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Setup package structure",
+            "description": "Organize code into proper Python package structure with modules",
+            "dependencies": [
+              3
+            ],
+            "details": "Create __init__.py files in all src/ subdirectories. Implement main application entry point. Create base classes and interfaces for core components. Setup imports and module organization. Create version management and package metadata",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create documentation setup",
+            "description": "Initialize documentation structure and basic project documentation",
+            "dependencies": [
+              4
+            ],
+            "details": "Create README.md with project description and setup instructions. Initialize docs/ directory with API documentation structure. Create CONTRIBUTING.md and LICENSE files. Setup documentation generation tools (Sphinx/MkDocs). Create initial architecture documentation",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement Database Connection Management",
+        "description": "Create SQLAlchemy-based connection manager supporting multiple RDB types with connection pooling",
+        "details": "Implement DatabaseManager class using SQLAlchemy with support for MySQL, PostgreSQL, Oracle, SQL Server, MariaDB. Create connection pool management with configurable pool size, timeout, and retry logic. Implement automatic schema detection and table introspection. Add health check functionality and connection validation.",
+        "testStrategy": "Unit tests with mock databases, integration tests with actual database connections, connection pool stress testing",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "SQLAlchemy Base Setup",
+            "description": "Set up SQLAlchemy core infrastructure with basic database connection capabilities",
+            "dependencies": [],
+            "details": "Install SQLAlchemy and create base DatabaseManager class. Set up basic connection string handling and engine creation. Implement configuration loading for database settings. Create basic connection establishment and cleanup methods.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Multi-Database Driver Implementation",
+            "description": "Implement support for multiple database types (MySQL, PostgreSQL, Oracle, SQL Server, MariaDB)",
+            "dependencies": [
+              1
+            ],
+            "details": "Install and configure database drivers for each supported database type. Create database-specific connection string builders. Implement dialect-specific configuration handling. Add database type detection and validation logic.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Connection Pooling with Configuration",
+            "description": "Implement connection pooling with configurable pool size, timeout, and retry logic",
+            "dependencies": [
+              2
+            ],
+            "details": "Configure SQLAlchemy connection pooling with customizable pool size, overflow, and timeout settings. Implement connection pool monitoring and metrics. Add pool configuration validation and dynamic pool size adjustment. Create connection lifecycle management.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Schema Detection and Introspection",
+            "description": "Implement automatic schema detection and table introspection capabilities",
+            "dependencies": [
+              3
+            ],
+            "details": "Create schema introspection methods to detect tables, columns, and relationships. Implement metadata extraction for table structures and constraints. Add support for multiple schemas and database catalogs. Create table and column type mapping utilities.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Health Checks and Validation",
+            "description": "Add health check functionality and connection validation",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement connection health check methods with configurable intervals. Create connection validation logic to test database connectivity. Add monitoring for connection status and performance metrics. Implement automatic connection recovery and failover mechanisms.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Error Handling with Retries",
+            "description": "Implement comprehensive error handling with retry logic and connection recovery",
+            "dependencies": [
+              5
+            ],
+            "details": "Create robust error handling for database connection failures, timeouts, and network issues. Implement exponential backoff retry logic with configurable retry counts. Add connection recovery mechanisms and graceful degradation. Create detailed error logging and monitoring.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Integrate Milvus Vector Database",
+        "description": "Setup Milvus connection, collection management, and basic vector operations with row-level RBAC",
+        "details": "Install pymilvus and implement MilvusManager class. Create collection schema with metadata fields for access control. Implement vector insertion, search, and deletion operations. Setup row-level RBAC using Milvus metadata filtering. Create index management for performance optimization.",
+        "testStrategy": "Unit tests for Milvus operations, integration tests with actual Milvus instance, performance tests for vector operations",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Setup Milvus Client and Connection Configuration",
+            "description": "Install pymilvus, configure connection parameters, and implement basic connection management with health checks",
+            "dependencies": [],
+            "details": "Install pymilvus package and create MilvusClient wrapper class. Implement connection configuration with host, port, authentication credentials. Add connection pooling, retry logic, and health check functionality. Create configuration validation and error handling for connection issues.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Design Collection Schema with Metadata Fields",
+            "description": "Create collection schema definition with vector fields and metadata for access control and document tracking",
+            "dependencies": [
+              1
+            ],
+            "details": "Design collection schema with vector field for embeddings, metadata fields for document ID, source, timestamp, user permissions, and access control tags. Implement schema validation and migration capabilities. Create collection management utilities for creation, deletion, and schema updates.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Vector CRUD Operations",
+            "description": "Build core vector operations including insertion, search, update, and deletion with batch processing support",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement vector insertion with metadata, batch insertion for efficiency, similarity search with configurable parameters, vector update operations, and deletion by ID or filter conditions. Add error handling, validation, and performance optimization for large-scale operations.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Row-Level RBAC with Metadata Filtering",
+            "description": "Create access control system using Milvus metadata filtering for user-specific data access",
+            "dependencies": [
+              3
+            ],
+            "details": "Implement row-level access control by adding user/role metadata to vectors and filtering search results based on user permissions. Create permission checking utilities, metadata-based filtering for queries, and access control validation. Integrate with authentication system for seamless security enforcement.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Setup Index Management for Performance Optimization",
+            "description": "Configure and manage vector indexes for optimal search performance and resource utilization",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement index creation and management with support for different index types (IVF, HNSW). Create index optimization strategies based on data size and query patterns. Add index monitoring, performance metrics collection, and automated index rebuilding. Implement index configuration management and performance tuning utilities.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Multi-LLM Integration Layer",
+        "description": "Create modular LLM interface supporting OpenAI, Gemini, Claude, and Ollama with unified API",
+        "details": "Design abstract LLMProvider base class. Implement concrete providers for OpenAI GPT, Google Gemini, Anthropic Claude, and Ollama. Create LLMManager to handle provider selection and load balancing. Implement async request handling with proper error handling and retry logic. Add response parsing and standardization.",
+        "testStrategy": "Unit tests for each LLM provider, integration tests with actual API calls, mock tests for error scenarios",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Design Abstract LLM Provider Interface",
+            "description": "Create base LLMProvider abstract class with standardized interface for all LLM implementations",
+            "dependencies": [],
+            "details": "Define abstract base class with methods for text generation, async processing, error handling, and response parsing. Include common properties like model configuration, token limits, and rate limiting. Create shared data structures for requests and responses.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement OpenAI Provider",
+            "description": "Create OpenAI-specific LLM provider implementation with GPT model support",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement OpenAI API client with async request handling. Support multiple GPT models (GPT-4, GPT-3.5). Handle authentication, rate limiting, and OpenAI-specific error responses. Implement streaming and batch processing capabilities.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Google Gemini Provider",
+            "description": "Create Google Gemini-specific LLM provider implementation",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement Google Gemini API client with proper authentication and async handling. Support Gemini Pro and other model variants. Handle Google-specific response formats and error codes. Implement safety settings and content filtering.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Anthropic Claude Provider",
+            "description": "Create Anthropic Claude-specific LLM provider implementation",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement Anthropic API client with Claude model support. Handle Claude-specific message format and conversation context. Implement proper authentication and rate limiting. Support Claude's streaming responses and token counting.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement Ollama Provider",
+            "description": "Create Ollama-specific LLM provider for local model deployment",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement Ollama API client for local LLM deployment. Support model management, loading, and switching. Handle local server connectivity and health checks. Implement streaming responses and custom model configuration.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Create LLM Manager with Load Balancing",
+            "description": "Implement LLMManager class to orchestrate multiple providers with load balancing and failover",
+            "dependencies": [
+              2,
+              3,
+              4,
+              5
+            ],
+            "details": "Create centralized manager to route requests across providers. Implement round-robin and weighted load balancing. Add provider health monitoring and automatic failover. Include request queuing and throttling mechanisms.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Implement Unified Response Handling with Error Management",
+            "description": "Create standardized response processing and comprehensive error handling system",
+            "dependencies": [
+              6
+            ],
+            "details": "Implement unified response format across all providers. Create comprehensive error handling with retry logic, circuit breaker pattern, and graceful degradation. Add response validation, logging, and metrics collection. Include timeout handling and request cancellation.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Develop Embedding Models System",
+        "description": "Implement flexible embedding system supporting multiple models with performance optimization",
+        "details": "Create EmbeddingManager with support for OpenAI embeddings, Sentence Transformers, and HuggingFace models. Implement model loading, caching, and batch processing. Add embedding dimension validation and normalization. Create embedding comparison utilities for similarity search.",
+        "testStrategy": "Unit tests for embedding generation, performance tests for batch processing, accuracy tests for similarity calculations",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Design Embedding Model Interface",
+            "description": "Create abstract base class and interface design for flexible embedding model integration",
+            "dependencies": [],
+            "details": "Design EmbeddingModel abstract base class with standardized methods for encoding, dimension retrieval, and model information. Create interface specifications for embedding generation, batch processing, and model metadata. Define error handling patterns and validation requirements. Establish configuration schema for different model types.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement OpenAI Embeddings Integration",
+            "description": "Integrate OpenAI's text-embedding models with proper API handling and error management",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement OpenAIEmbeddingModel class extending the base interface. Handle API key management, rate limiting, and retry logic. Support multiple OpenAI embedding models (text-embedding-3-small, text-embedding-3-large). Implement proper error handling for API failures and quota limits. Add configuration for model selection and parameters.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Sentence Transformers Integration",
+            "description": "Integrate Sentence Transformers library for local embedding model support",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement SentenceTransformerModel class for local embedding generation. Support popular models like all-MiniLM-L6-v2, all-mpnet-base-v2. Handle model downloading, caching, and GPU/CPU selection. Implement batch processing for efficient local inference. Add model normalization and dimension validation.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement HuggingFace Models Integration",
+            "description": "Integrate HuggingFace Transformers library for custom and community embedding models",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement HuggingFaceEmbeddingModel class supporting transformers library. Handle model loading from HuggingFace Hub with authentication. Support custom tokenizers and model configurations. Implement efficient batching and memory management. Add support for both AutoModel and pipeline approaches.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement Performance Optimization with Caching and Batch Processing",
+            "description": "Add caching layer and batch processing optimization for efficient embedding operations",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Implement Redis-based caching for embedding results with TTL management. Create batch processing system to optimize API calls and local inference. Add embedding similarity caching for repeated queries. Implement memory-efficient processing for large text batches. Create performance monitoring and metrics collection for embedding operations.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Build RDB Data Extraction Pipeline",
+        "description": "Create data ingestion system for relational databases with incremental sync and metadata extraction",
+        "details": "Implement RDBExtractor class with table scanning, data chunking, and incremental update detection. Create metadata extraction for columns, relationships, and data types. Implement configurable sync schedules with change detection using timestamps or checksums. Add data validation and error handling.",
+        "testStrategy": "Unit tests for data extraction logic, integration tests with sample databases, performance tests for large datasets",
+        "priority": "medium",
+        "dependencies": [
+          2
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create RDB extractor base class",
+            "description": "Implement abstract base class for database extractors with common connection and query methods",
+            "dependencies": [],
+            "details": "Create RDBExtractor abstract base class with methods for database connection, query execution, and result handling. Include configuration management for connection parameters, connection pooling, and error handling patterns. Implement factory pattern for creating specific database extractors.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement table scanning and data chunking",
+            "description": "Build table discovery and chunked data extraction with configurable batch sizes",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement table scanning to discover all tables and columns in database. Create chunking mechanism to process large tables in configurable batch sizes. Add memory management and streaming capabilities for handling large datasets efficiently.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Build incremental sync with change detection",
+            "description": "Implement change detection using timestamps, checksums, or change logs for incremental updates",
+            "dependencies": [
+              2
+            ],
+            "details": "Create incremental sync logic using timestamp columns, checksum comparison, or database change logs. Implement state tracking to remember last sync points. Add conflict resolution for handling concurrent changes and deleted records.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Develop metadata extraction for schema analysis",
+            "description": "Extract database schema metadata including tables, columns, relationships, and data types",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement metadata extraction to capture table schemas, column definitions, primary keys, foreign keys, and indexes. Create relationship mapping between tables. Add data type analysis and constraint detection for comprehensive schema understanding.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create configurable sync scheduling",
+            "description": "Implement flexible scheduling system for automated database synchronization",
+            "dependencies": [
+              3
+            ],
+            "details": "Build scheduling system supporting cron-like expressions, interval-based scheduling, and manual triggers. Implement job queue management with priority handling. Add monitoring and alerting for sync job status and failures.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Add data validation with error handling",
+            "description": "Implement comprehensive data validation and robust error handling throughout the pipeline",
+            "dependencies": [
+              2,
+              4
+            ],
+            "details": "Create data validation rules for schema compliance, data integrity checks, and format validation. Implement comprehensive error handling with retry mechanisms, logging, and recovery strategies. Add data quality reporting and anomaly detection.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement File System Data Ingestion",
+        "description": "Create file processing system supporting multiple formats with change detection and metadata extraction",
+        "details": "Implement FileSystemExtractor supporting TXT, PDF, Word, Excel, Markdown files. Create recursive directory scanning with file change detection using modification timestamps. Add metadata extraction for file properties, content analysis, and format-specific parsing. Implement batch processing for large file sets.",
+        "testStrategy": "Unit tests for file parsing, integration tests with various file formats, performance tests for large directories",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement TXT, PDF, Word, Excel, and Markdown file parsers",
+            "description": "Create individual parser classes for each supported file format with content extraction capabilities",
+            "dependencies": [],
+            "details": "Implement TextParser for .txt files, PDFParser using PyPDF2/pdfplumber for PDF extraction, WordParser using python-docx for Word documents, ExcelParser using openpyxl/pandas for Excel files, and MarkdownParser using markdown library. Each parser should extract raw text content and preserve basic formatting metadata.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement recursive directory scanning system",
+            "description": "Create directory traversal system that can recursively scan folders and identify supported file types",
+            "dependencies": [],
+            "details": "Implement DirectoryScanner class with os.walk() or pathlib.Path.rglob() for recursive traversal. Add file type detection based on extensions and MIME types. Include filtering capabilities for supported formats and exclude patterns. Implement configurable depth limits and symbolic link handling.\n<info added on 2025-07-19T03:27:48.627Z>\nCOMPLETED: DirectoryScanner class fully implemented in scanner.py:86-483 with all required functionality including recursive scanning using pathlib.Path.iterdir(), file type detection via extensions and MIME types, comprehensive filtering options (include/exclude patterns, extensions, file size), symbolic link handling with circular reference detection, depth limits, hidden file processing, error handling for permission issues, performance statistics collection, metadata extraction, and ScanResult data structure for batch processing. All requirements have been successfully met.\n</info added on 2025-07-19T03:27:48.627Z>",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement file change detection system",
+            "description": "Create system to track file modifications and detect changes using timestamps and checksums",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement FileChangeDetector using modification timestamps (mtime) and optional file hashing for integrity checks. Create database/cache storage for tracking file states. Add functionality to detect new, modified, and deleted files. Implement incremental scanning to process only changed files.\n<info added on 2025-07-19T03:31:41.623Z>\nFileChangeDetector system implementation completed successfully. Key features implemented:\n- FileState class tracking file path, mtime, size, hash, and last_scanned timestamp\n- ChangeType enum with NEW, MODIFIED, DELETED, UNCHANGED states\n- ChangeRecord data structure for logging file changes\n- FileChangeDetector class featuring modification timestamp-based change detection, optional file hashing with multiple algorithms (MD5, SHA1, SHA256, SHA512), JSON-based atomic cache system, seamless integration with DirectoryScanner.ScanResult, detection of new/modified/deleted files, incremental scanning with statistics collection, chunked hash calculation for large files, and comprehensive error handling with cache validation\nComplete implementation available in change_detector.py:1-523 with all functionality operational.\n</info added on 2025-07-19T03:31:41.623Z>",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement metadata extraction for file properties",
+            "description": "Create system to extract and store file metadata including size, dates, and format-specific properties",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement MetadataExtractor to gather file system metadata (size, creation/modification dates, permissions) and format-specific metadata (page count for PDFs, word count for documents, sheet names for Excel). Store metadata in structured format for indexing and search capabilities.\n<info added on 2025-07-19T03:39:08.631Z>\nMetadataExtractor system has been fully implemented with comprehensive functionality.\n\n**Implemented Core Features:**\n\n**Data Structures (metadata_types.py):**\n- BasicFileMetadata: File system metadata (size, timestamps, permissions, ownership)\n- FormatSpecificMetadata: Abstract base class for format-specific metadata\n- PDFMetadata: PDF file metadata (page count, title, author, encryption status)\n- WordMetadata: Word document metadata (word count, page count, document properties)\n- ExcelMetadata: Excel file metadata (sheet names, row/column counts, document properties)\n- TextMetadata: Text file metadata (line count, word count, encoding, line ending format)\n- ImageMetadata: Image file metadata (dimensions, format, color mode, transparency)\n- FileMetadata: Unified metadata container with JSON serialization support\n- MetadataStats: Metadata statistics collection\n\n**MetadataExtractor Class (metadata_extractor.py):**\n- Basic metadata extraction using os.stat() and pathlib.Path.stat()\n- File type and permission analysis using stat module\n- Format-specific metadata extraction integrated with existing ParserFactory\n- Library integration: PyPDF2, python-docx, openpyxl, Pillow\n- Automatic character encoding detection using chardet\n- Batch processing with progress tracking\n- Full integration with DirectoryScanner\n- Comprehensive error handling with partial extraction support\n- Statistics collection and performance monitoring\n\nAll functionality has been completely implemented and is ready for use.\n</info added on 2025-07-19T03:39:08.631Z>",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement batch processing for large file sets",
+            "description": "Create efficient batch processing system with parallel processing and progress tracking",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Implement BatchProcessor with threading/multiprocessing for parallel file processing. Add progress tracking, ETA calculation, and processing statistics. Implement memory management for large file sets and configurable batch sizes. Add pause/resume functionality and processing queues.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Implement error handling for corrupted files",
+            "description": "Create comprehensive error handling system for file processing failures and corrupted files",
+            "dependencies": [
+              1,
+              4
+            ],
+            "details": "Implement FileErrorHandler with try-catch blocks for each parser. Add file validation checks before processing. Create error classification system (corrupted, unsupported, permission denied, etc.). Implement error logging, retry mechanisms, and fallback strategies. Add error reporting and recovery options.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Develop Text Processing and Chunking System",
+        "description": "Create intelligent text preprocessing and chunking system optimized for RAG applications",
+        "details": "Implement TextProcessor class with cleaning, normalization, and chunking capabilities. Use LangChain text splitters for intelligent chunking with overlap. Add support for different chunking strategies (fixed size, semantic, sentence-based). Implement metadata preservation during chunking process.",
+        "testStrategy": "Unit tests for text processing functions, quality tests for chunking accuracy, performance tests for large text processing",
+        "priority": "medium",
+        "dependencies": [
+          6,
+          7
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement text cleaning and normalization",
+            "description": "Create comprehensive text preprocessing pipeline for cleaning and normalizing raw text inputs",
+            "dependencies": [],
+            "details": "Develop TextCleaner class with methods for removing unwanted characters, handling encoding issues, normalizing whitespace, and standardizing text format. Include support for HTML/XML tag removal, URL extraction, and special character handling. Implement configurable cleaning rules for different document types.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Integrate LangChain text splitter components",
+            "description": "Set up and configure LangChain text splitters for intelligent document chunking",
+            "dependencies": [
+              1
+            ],
+            "details": "Install and configure LangChain text splitters including RecursiveCharacterTextSplitter, TokenTextSplitter, and SpacyTextSplitter. Create wrapper classes for consistent interface and parameter management. Implement overlap configuration and chunk size optimization for different document types.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement multiple chunking strategies",
+            "description": "Create flexible chunking system supporting fixed-size, semantic, and sentence-based strategies",
+            "dependencies": [
+              2
+            ],
+            "details": "Develop ChunkingStrategy abstract base class with concrete implementations for FixedSizeChunker, SemanticChunker, and SentenceBasedChunker. Implement strategy selection logic based on document type and content characteristics. Add support for configurable chunk sizes, overlap ratios, and boundary detection.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement metadata preservation during chunking",
+            "description": "Create system to maintain and enrich metadata throughout the chunking process",
+            "dependencies": [
+              3
+            ],
+            "details": "Develop MetadataManager to track document source, chunk position, creation timestamps, and content characteristics. Implement metadata inheritance from parent documents to chunks. Add support for custom metadata fields and automatic metadata extraction from document structure. Create metadata validation and serialization utilities.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Build Vector Storage and Indexing Pipeline",
+        "description": "Implement complete pipeline from text to vector storage with metadata and access control",
+        "details": "Create VectorPipeline class combining text processing, embedding generation, and Milvus storage. Implement batch processing for efficiency. Add metadata enrichment with source information, timestamps, and access control tags. Create indexing strategies for optimal search performance.",
+        "testStrategy": "Integration tests for complete pipeline, performance tests for batch processing, accuracy tests for vector storage and retrieval",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          5,
+          8
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement vector pipeline orchestration framework",
+            "description": "Create VectorPipeline class that orchestrates the complete text-to-vector workflow with modular components",
+            "dependencies": [],
+            "details": "Design VectorPipeline class with configurable stages for text processing, embedding generation, and vector storage. Implement pipeline state management, error handling, and logging. Create interfaces for pluggable components and validation for pipeline configuration.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement batch processing system for efficient data handling",
+            "description": "Build batch processing capabilities for handling large datasets with memory optimization and parallel processing",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement BatchProcessor with configurable batch sizes, memory management, and parallel processing capabilities. Add progress tracking, error recovery, and resource monitoring. Create batch queue management with priority handling and throughput optimization.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Build metadata enrichment system with access control tags",
+            "description": "Implement metadata extraction and enrichment pipeline with access control tag integration",
+            "dependencies": [
+              1
+            ],
+            "details": "Create MetadataEnricher to extract source information, timestamps, content analysis, and format-specific metadata. Implement access control tag assignment based on data source and user permissions. Add metadata validation and standardization across different data types.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Milvus indexing strategies for optimal search performance",
+            "description": "Design and implement indexing strategies for Milvus collections with performance optimization",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Implement IndexStrategy class with multiple indexing approaches (IVF_FLAT, IVF_PQ, HNSW). Create index selection logic based on data size and query patterns. Add index monitoring, rebuilding strategies, and performance metrics collection.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement performance optimization for large dataset processing",
+            "description": "Optimize pipeline performance for handling large datasets with memory efficiency and monitoring",
+            "dependencies": [
+              2,
+              4
+            ],
+            "details": "Implement performance monitoring with metrics collection for throughput, latency, and resource usage. Add memory optimization techniques, garbage collection strategies, and connection pooling. Create performance tuning recommendations and automated scaling capabilities.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Implement Authentication and Authorization System",
+        "description": "Create JWT-based authentication with role-based access control and user management",
+        "details": "Implement AuthManager with JWT token generation and validation. Create User and Role models with SQLAlchemy. Implement RBAC system with permissions for different data sources. Add token refresh, expiration handling, and secure password hashing with bcrypt. Create middleware for API authentication.",
+        "testStrategy": "Unit tests for authentication logic, security tests for token validation, integration tests for role-based access",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement JWT Authentication Core",
+            "description": "Create JWT token generation, validation, and parsing functionality with proper security measures",
+            "dependencies": [],
+            "details": "Implement JWT token creation with configurable expiration times, secure signing algorithms (RS256/HS256), and proper payload structure. Create token validation logic with signature verification, expiration checks, and claim validation. Add token parsing utilities and error handling for malformed tokens.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Design User and Role Models",
+            "description": "Create SQLAlchemy models for users, roles, and permissions with proper relationships",
+            "dependencies": [],
+            "details": "Design User model with authentication fields (username, email, password hash, status). Create Role model with hierarchical structure support. Implement Permission model with granular access controls. Define many-to-many relationships between users and roles, roles and permissions. Add audit fields and soft delete functionality.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement RBAC System with Permissions",
+            "description": "Build role-based access control system with permission checking and enforcement",
+            "dependencies": [
+              2
+            ],
+            "details": "Create RBACManager to handle permission checks and role assignments. Implement permission inheritance and hierarchical role support. Add permission caching for performance optimization. Create decorators for method-level access control. Implement dynamic permission evaluation for resource-based access.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Token Management System",
+            "description": "Create token refresh, expiration handling, and secure token storage mechanisms",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement refresh token generation and validation with longer expiration times. Create token blacklisting for logout and revocation. Add automatic token refresh logic with sliding window expiration. Implement secure token storage with encryption at rest. Create token cleanup tasks for expired tokens.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create Authentication Middleware",
+            "description": "Build middleware for API request authentication and authorization enforcement",
+            "dependencies": [
+              1,
+              3,
+              4
+            ],
+            "details": "Create FastAPI middleware for automatic token validation on protected routes. Implement request context injection with user and role information. Add route-level permission enforcement with decorator support. Create exception handlers for authentication and authorization errors. Implement rate limiting and brute force protection.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Develop Fine-Grained Access Control System",
+        "description": "Implement row-level security with metadata-based filtering for vector search results",
+        "details": "Create AccessControlManager integrating with Milvus row-level RBAC. Implement metadata-based filtering for file/folder permissions and database table/row access. Create permission inheritance and group-based access control. Add audit logging for access attempts and permission changes.",
+        "testStrategy": "Unit tests for permission logic, integration tests with Milvus filtering, security tests for access control bypass attempts",
+        "priority": "high",
+        "dependencies": [
+          3,
+          10
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Milvus Row-Level RBAC Integration",
+            "description": "Integrate with Milvus row-level Role-Based Access Control system for fine-grained vector database access control",
+            "dependencies": [],
+            "details": "Create MilvusRBACManager class to interface with Milvus row-level access control. Implement role creation, permission assignment, and user-role mapping. Configure Milvus collection-level and partition-level access controls. Add support for dynamic permission updates and role inheritance within Milvus.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Metadata-Based Filtering System",
+            "description": "Create metadata-based filtering mechanism for search results based on user permissions and content attributes",
+            "dependencies": [
+              1
+            ],
+            "details": "Design MetadataFilter class to process search results based on file permissions, folder access, and database row permissions. Implement filtering logic for document metadata, user ownership, and content classification. Create filter chain for multiple permission layers and content-based access control.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Develop Permission Inheritance System",
+            "description": "Create hierarchical permission inheritance system for folders, collections, and nested resources",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement PermissionInheritanceManager to handle parent-child permission relationships. Create inheritance rules for folder structures, collection hierarchies, and nested document permissions. Add support for permission overrides and explicit denial rules. Implement efficient permission resolution algorithms.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Group-Based Access Control",
+            "description": "Create group management system with role-based permissions and group membership handling",
+            "dependencies": [
+              3
+            ],
+            "details": "Design GroupManager class for creating, managing, and assigning users to groups. Implement group-based permission inheritance and role aggregation. Create group hierarchy support with nested group permissions. Add dynamic group membership updates and permission propagation.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Develop Audit Logging System",
+            "description": "Create comprehensive audit logging for all access attempts, permission changes, and security events",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement AuditLogger class to track access attempts, permission grants/denials, and administrative actions. Create structured logging with timestamps, user identification, and action details. Add log retention policies and secure log storage. Implement audit trail analysis and suspicious activity detection.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Implement Security Testing Framework",
+            "description": "Create comprehensive security testing suite to prevent access control bypass vulnerabilities",
+            "dependencies": [
+              5
+            ],
+            "details": "Develop SecurityTestSuite with penetration testing scenarios for access control bypass attempts. Create test cases for privilege escalation, permission boundary violations, and authentication bypass. Implement automated security scanning and vulnerability assessment. Add compliance testing for security standards and audit requirements.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Build Core RAG Query Processing System",
+        "description": "Implement vector search and retrieval system with context ranking and filtering",
+        "details": "Create RAGProcessor class for query embedding, vector search, and context retrieval. Implement similarity search with configurable parameters (top-k, similarity threshold). Add context ranking and relevance scoring. Implement access control filtering for search results. Create query expansion and optimization features.",
+        "testStrategy": "Unit tests for search logic, integration tests with vector database, accuracy tests for retrieval quality",
+        "priority": "high",
+        "dependencies": [
+          9,
+          11
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Query Embedding and Preprocessing",
+            "description": "Implement query text preprocessing and embedding generation for vector search",
+            "dependencies": [],
+            "details": "Create QueryPreprocessor class to clean and normalize user queries. Implement query embedding using HuggingFace embeddings model. Add support for query validation, text cleaning, and metadata extraction. Handle different query types and formats.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Vector Similarity Search Implementation",
+            "description": "Implement core vector similarity search functionality with Milvus integration",
+            "dependencies": [
+              1
+            ],
+            "details": "Create VectorSearchEngine class for performing similarity search operations. Implement configurable search parameters (top-k, similarity threshold, search radius). Add support for different distance metrics and search algorithms. Integrate with Milvus vector database for efficient search.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Context Retrieval and Ranking",
+            "description": "Implement context retrieval system with intelligent ranking algorithms",
+            "dependencies": [
+              2
+            ],
+            "details": "Create ContextRetriever class to fetch and rank relevant document chunks. Implement ranking algorithms based on similarity scores, document metadata, and user context. Add support for context filtering and deduplication. Create context aggregation for coherent response generation.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Access Control Filtering for Results",
+            "description": "Implement row-level access control filtering for search results",
+            "dependencies": [
+              3
+            ],
+            "details": "Create AccessControlFilter class to filter search results based on user permissions. Implement integration with authentication system to check user roles and permissions. Add support for data source-specific access controls. Create audit logging for access control decisions.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Query Expansion and Optimization",
+            "description": "Implement query expansion and optimization features for improved search quality",
+            "dependencies": [
+              1
+            ],
+            "details": "Create QueryExpander class to enhance queries with synonyms, related terms, and context. Implement query optimization techniques like term weighting and phrase detection. Add support for multi-language query processing. Create query history analysis for personalized expansion.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Relevance Scoring Algorithms",
+            "description": "Implement sophisticated relevance scoring algorithms for result ranking",
+            "dependencies": [
+              3,
+              4,
+              5
+            ],
+            "details": "Create RelevanceScorer class with multiple scoring algorithms (BM25, TF-IDF, semantic similarity). Implement hybrid scoring combining vector similarity and traditional IR metrics. Add learning-to-rank capabilities based on user feedback. Create configurable scoring weights and parameters.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Implement Single and Multi-LLM Response Generation",
+        "description": "Create response generation system supporting both single LLM and ensemble modes",
+        "details": "Implement ResponseGenerator with single LLM mode for fast responses and multi-LLM ensemble mode for accuracy. Create prompt engineering system with context injection. Implement response quality evaluation and selection for ensemble mode. Add response post-processing and formatting. Create timeout and error handling for LLM calls.",
+        "testStrategy": "Unit tests for response generation, integration tests with multiple LLMs, quality tests for ensemble selection",
+        "priority": "medium",
+        "dependencies": [
+          4,
+          12
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Single LLM Response Generation",
+            "description": "Create basic response generation system for single LLM provider calls",
+            "dependencies": [],
+            "details": "Implement SingleLLMGenerator class with provider selection, prompt formatting, and response handling. Include basic error handling and timeout management for individual LLM calls.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Multi-LLM Ensemble System",
+            "description": "Create ensemble response generation system that queries multiple LLMs simultaneously",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement EnsembleLLMGenerator that coordinates multiple LLM calls, collects responses, and manages concurrent requests. Include load balancing and provider availability checks.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Prompt Engineering with Context Injection",
+            "description": "Create advanced prompt engineering system with dynamic context injection",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement PromptEngineer class with context injection capabilities, prompt templates, and dynamic parameter substitution. Include context relevance filtering and prompt optimization.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Response Quality Evaluation and Selection",
+            "description": "Create response quality evaluation system for ensemble mode selection",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement ResponseEvaluator with quality metrics, scoring algorithms, and selection logic. Include confidence scoring, relevance evaluation, and best response selection for ensemble outputs.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement Response Post-Processing and Formatting",
+            "description": "Create response post-processing system for consistent output formatting",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement ResponseProcessor for output formatting, content cleaning, and standardization. Include response validation, markdown parsing, and structured output generation.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Implement Timeout and Error Handling for LLM Calls",
+            "description": "Create comprehensive error handling and timeout management system",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Implement ErrorHandler with timeout management, retry logic, and fallback strategies. Include provider-specific error handling, circuit breaker pattern, and graceful degradation for failed LLM calls.\n<info added on 2025-07-19T18:01:54.902Z>\n에러 핸들링과 타임아웃 관리 시스템 구현이 완료되었습니다. ErrorHandler가 SingleLLMGenerator와 EnsembleLLMGenerator에 완전히 통합되어 circuit breaker pattern을 통한 provider별 독립적 상태 관리가 구현되었습니다. Request complexity 기반 dynamic timeout과 adaptive timeout 조정 시스템이 적용되어 provider 성능에 따른 최적화가 이루어졌습니다. Multiple retry strategies(IMMEDIATE, LINEAR, EXPONENTIAL)와 exponential backoff with jitter가 구현되어 context-aware retry 의사결정이 가능해졌습니다. Provider-specific circuit breaker를 통한 fault isolation과 graceful degradation with fallback responses가 구현되어 ensemble fallback to single LLM 기능까지 포함되었습니다. Real-time error statistics collection과 provider performance metrics tracking, circuit breaker state monitoring을 통한 포괄적인 모니터링 시스템이 구축되어 fault tolerance가 대폭 개선되고 production environment에서의 resilience가 향상되었습니다.\n</info added on 2025-07-19T18:01:54.902Z>",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Develop FastAPI REST API Interface",
+        "description": "Create comprehensive REST API with authentication, validation, and documentation",
+        "details": "Implement FastAPI application with async endpoints for query processing. Create Pydantic models for request/response validation. Implement authentication middleware, rate limiting, and error handling. Add OpenAPI/Swagger documentation with examples. Create health check and monitoring endpoints.",
+        "testStrategy": "Unit tests for API endpoints, integration tests for complete request flow, performance tests for concurrent requests",
+        "priority": "high",
+        "dependencies": [
+          13
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Setup FastAPI Application with Async Endpoints",
+            "description": "Create FastAPI application instance with async endpoint configuration and basic routing structure",
+            "dependencies": [],
+            "details": "Initialize FastAPI app with async support, configure CORS, setup basic route structure for query endpoints, document processing, and user management. Implement async request handling patterns and configure application settings.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Pydantic Models for Request/Response Validation",
+            "description": "Create comprehensive Pydantic models for API request and response validation with proper typing",
+            "dependencies": [
+              1
+            ],
+            "details": "Define Pydantic models for query requests, document upload, user authentication, and API responses. Include field validation, custom validators, and proper error messages. Create base response models and error schemas.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Integrate Authentication Middleware",
+            "description": "Implement JWT-based authentication middleware with user session management",
+            "dependencies": [
+              2
+            ],
+            "details": "Create authentication middleware using JWT tokens, implement login/logout endpoints, user session validation, and role-based access control. Integrate with existing access control system and add token refresh mechanisms.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Rate Limiting and Error Handling",
+            "description": "Add rate limiting middleware and comprehensive error handling with proper HTTP status codes",
+            "dependencies": [
+              3
+            ],
+            "details": "Implement rate limiting using slowapi or custom middleware, create global exception handlers, add proper HTTP status codes and error responses. Include request logging and monitoring for security events.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Generate OpenAPI Documentation with Examples",
+            "description": "Configure comprehensive OpenAPI/Swagger documentation with interactive examples and API schemas",
+            "dependencies": [
+              4
+            ],
+            "details": "Configure OpenAPI documentation with detailed descriptions, request/response examples, authentication requirements, and interactive testing interface. Add API versioning and deprecation notices.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Create Health Check and Monitoring Endpoints",
+            "description": "Implement health check endpoints and monitoring utilities for application status and performance metrics",
+            "dependencies": [
+              5
+            ],
+            "details": "Create health check endpoints for application status, database connectivity, and external service availability. Add performance metrics endpoints, system resource monitoring, and alerting capabilities.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Build CLI Management Interface",
+        "description": "Create comprehensive CLI tool for system administration and configuration management",
+        "details": "Implement Click-based CLI with commands for: database configuration, user management, model testing, data source setup, system monitoring. Create interactive configuration wizards. Add progress indicators for long-running tasks. Implement configuration file management and validation. Create batch operation support.",
+        "testStrategy": "Unit tests for CLI commands, integration tests for configuration management, user experience tests for interactive features",
+        "priority": "medium",
+        "dependencies": [
+          14
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Setup Click-based CLI Framework",
+            "description": "Initialize Click framework with command groups, help system, and basic CLI structure",
+            "dependencies": [],
+            "details": "Create main CLI entry point using Click framework. Set up command groups for different functionality areas (database, user management, models, config). Implement help system with detailed command descriptions. Add version information and global options. Create base CLI class with common functionality and error handling.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Database and User Management Commands",
+            "description": "Create CLI commands for database operations and user administration",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement database commands: init, migrate, backup, restore, status. Create user management commands: create-user, delete-user, list-users, update-roles. Add database connection testing and validation. Implement user role assignment and permission management through CLI. Add batch user operations support.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Build Model Testing and Configuration Commands",
+            "description": "Create CLI commands for model testing, configuration, and performance evaluation",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement model testing commands: test-embedding, test-llm, benchmark-models. Create model configuration commands: set-model, list-models, model-info. Add performance evaluation tools for embedding and LLM models. Implement model health checks and status reporting. Create model comparison utilities.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Create Interactive Configuration Wizards",
+            "description": "Build interactive wizards for system setup and configuration management",
+            "dependencies": [
+              1
+            ],
+            "details": "Create setup wizard for initial system configuration. Implement data source configuration wizard with validation. Build model configuration wizard with testing integration. Add configuration validation and error reporting. Create configuration import/export functionality. Implement step-by-step guidance with progress tracking.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Add Progress Indicators and Batch Operations",
+            "description": "Implement progress tracking, batch operations, and long-running task management",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Add progress bars for long-running operations using Click's progress utilities. Implement batch operation support for user management and data processing. Create task queuing system for background operations. Add cancellation support for long-running tasks. Implement logging and status reporting for batch operations. Create operation history and audit trails.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-07-17T14:28:45.125Z",
+      "updated": "2025-07-19T18:34:31.387Z",
+      "description": "Tasks for master context"
+    }
+  }
+}
