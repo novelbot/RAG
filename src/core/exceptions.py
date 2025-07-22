@@ -175,6 +175,13 @@ class RetryError(RAGException):
         super().__init__(message, 500, details)
 
 
+class TokenLimitError(RAGException):
+    """Token limit related errors"""
+    
+    def __init__(self, message: str, details: Optional[Any] = None):
+        super().__init__(message, 400, details)
+
+
 class CircuitBreakerError(RAGException):
     """Circuit breaker related errors"""
     

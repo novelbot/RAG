@@ -59,6 +59,9 @@ class LLMConfig(BaseModel):
     base_url: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 1000
+    timeout: Optional[float] = 60.0
+    max_retries: int = 3
+    custom_headers: Optional[Dict[str, str]] = None
     
     @field_validator('provider')
     @classmethod

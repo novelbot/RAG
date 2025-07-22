@@ -157,19 +157,33 @@ def register_routes(app: FastAPI):
         return {"message": "RAG Server API", "version": get_config().version}
 
 
-def run_server():
+def run_server(host=None, port=None, reload=False):
     """Run the server with uvicorn"""
     config = get_config()
     
-    # Create app instance directly for debugging
-    app = create_app()
+    # Use provided values or fall back to config
+    server_host = host if host is not None else config.api.host
+    server_port = port if port is not None else config.api.port
     
-    uvicorn.run(
-        app,  # Direct app instance instead of factory
-        host=config.api.host,
-        port=config.api.port,
-        log_level=config.logging.level.lower(),
-    )
+    if reload:
+        # For reload mode, pass module path instead of app instance
+        uvicorn.run(
+            "src.core.app:create_app",
+            factory=True,
+            host=server_host,
+            port=server_port,
+            log_level=config.logging.level.lower(),
+            reload=True
+        )
+    else:
+        # Create app instance directly for production
+        app = create_app()
+        uvicorn.run(
+            app,
+            host=server_host,
+            port=server_port,
+            log_level=config.logging.level.lower(),
+        )
 
 
 if __name__ == "__main__":

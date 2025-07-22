@@ -82,11 +82,14 @@ vim .env
 ### 3. Run Application
 
 ```bash
-# Start the server
+# Start the server (basic method)
 uv run main.py
 
-# Or using CLI
+# Start server via CLI (development mode)
 uv run rag-cli serve --reload
+
+# Start server via CLI (custom settings)
+uv run rag-cli serve --host 0.0.0.0 --port 8001 --reload
 ```
 
 ## ⚙️ Configuration
@@ -1224,135 +1227,194 @@ print(f"Compliance tags: {enriched_metadata['compliance']}")
 
 ## 🖥️ CLI Interface
 
-Production-ready Click-based CLI interface for managing all aspects of the RAG server.
+Production-ready Click-based CLI interface for managing all aspects of the RAG server. Perform system status checks, model testing, data processing, and more without running the server.
+
+### System Management
+
+```bash
+# Check server status and configuration
+uv run rag-cli status
+
+# Display current configuration
+uv run rag-cli show-config
+
+# Test system components
+uv run rag-cli test
+
+# Test specific component only
+uv run rag-cli test --component database
+
+# Start server (development mode)
+uv run rag-cli serve --reload
+
+# Start server (custom settings)
+uv run rag-cli serve --host 0.0.0.0 --port 8001 --reload
+```
 
 ### Database Management
 
 ```bash
-# Initialize database (create tables, default roles/permissions, admin account)
-uv run python -m src.cli.main database init
+# Check database status
+uv run rag-cli database status
 
 # Test database connectivity
-uv run python -m src.cli.main database test
+uv run rag-cli database test
 
-# Check database status
-uv run python -m src.cli.main database status
+# Initialize database (create tables, default roles/permissions, admin account)
+uv run rag-cli database init
 
 # Create database backup
-uv run python -m src.cli.main database backup --output backup.sql
+uv run rag-cli database backup --output backup.sql
 
 # Restore from backup
-uv run python -m src.cli.main database restore --input backup.sql
+uv run rag-cli database restore --input backup.sql
+
+# Run database migrations
+uv run rag-cli database migrate
 ```
 
 ### User Management
 
 ```bash
+# List all users
+uv run rag-cli user list
+
 # Create new user
-uv run python -m src.cli.main user create --username john --email john@example.com --role user
+uv run rag-cli user create --username john --email john@example.com --role user
 
 # Create admin user
-uv run python -m src.cli.main user create --username admin --email admin@company.com --role admin
-
-# List all users
-uv run python -m src.cli.main user list
+uv run rag-cli user create --username admin --email admin@company.com --role admin
 
 # Filter users by role
-uv run python -m src.cli.main user list --role admin
+uv run rag-cli user list --role admin
 
 # Show only active users
-uv run python -m src.cli.main user list --active
+uv run rag-cli user list --active
 
 # Output users in JSON format
-uv run python -m src.cli.main user list --format json
+uv run rag-cli user list --format json
+
+# Update user information
+uv run rag-cli user update --username john --email newemail@example.com
+
+# Delete user
+uv run rag-cli user delete --username john
+
+# Check user groups
+uv run rag-cli user groups --username john
 ```
 
 ### Model Testing and Configuration
 
 ```bash
 # Test all LLM providers
-uv run python -m src.cli.main model test-llm
+uv run rag-cli model test-llm
 
 # Test specific provider
-uv run python -m src.cli.main model test-llm --provider openai
+uv run rag-cli model test-llm --provider ollama
+uv run rag-cli model test-llm --provider openai
 
 # Test with custom prompt
-uv run python -m src.cli.main model test-llm --prompt "Explain quantum computing"
+uv run rag-cli model test-llm --prompt "Explain quantum computing"
+
+# Test specific model
+uv run rag-cli model test-llm --provider ollama --model llama3.2
 
 # Test embedding models
-uv run python -m src.cli.main model test-embedding
+uv run rag-cli model test-embedding
+uv run rag-cli model test-embedding --provider openai
 
-# Run performance benchmarks
-uv run python -m src.cli.main model benchmark --iterations 20
+# Benchmark model performance
+uv run rag-cli model benchmark --iterations 20
+uv run rag-cli model benchmark --provider ollama --concurrent 5
 
 # List available models
-uv run python -m src.cli.main model list-models
+uv run rag-cli model list-models
+uv run rag-cli model list-models --provider openai
+uv run rag-cli model list-models --type llm
 
 # Configure model settings
-uv run python -m src.cli.main model set-model --llm-provider openai --llm-model gpt-4
+uv run rag-cli model set-model --llm-provider openai --llm-model gpt-4
+uv run rag-cli model set-model --embedding-provider openai --embedding-model text-embedding-3-large
 ```
 
 ### Data Management
 
 ```bash
-# Ingest data from directory
-uv run python -m src.cli.main data ingest --path ./documents --recursive
+# Check data status
+uv run rag-cli data status
 
-# Process specific file types
-uv run python -m src.cli.main data ingest --path ./docs --file-types pdf,docx
+# Ingest data from directory
+uv run rag-cli data ingest --path ./documents --recursive
+
+# Process specific file types only
+uv run rag-cli data ingest --path ./docs --file-types pdf,docx,txt
+
+# Process with specific batch size
+uv run rag-cli data ingest --path ./data --batch-size 50
+
+# Force reprocessing
+uv run rag-cli data ingest --path ./documents --force
 
 # Synchronize data sources
-uv run python -m src.cli.main data sync --source filesystem
+uv run rag-cli data sync --source filesystem
 
-# Check data status
-uv run python -m src.cli.main data status
-
-# Clean up orphaned data
-uv run python -m src.cli.main data cleanup --orphaned
+# Clean up data
+uv run rag-cli data cleanup --orphaned
 ```
 
 ### Configuration Management
 
 ```bash
-# Create .env file template
-cp .env.example .env
+# Show current configuration (hide sensitive info)
+uv run rag-cli config show
 
-# Environment variable-based configuration management
-# Edit .env file directly to change settings
-
-# Show current configuration
-uv run python -m src.cli.main config show
+# Show configuration including sensitive information
+uv run rag-cli config show --show-sensitive
 
 # Validate configuration
-uv run python -m src.cli.main config validate
+uv run rag-cli config validate
+
+# Generate .env template
+cp .env.example .env
 ```
 
 ### Advanced CLI Features
 
 ```bash
-# Run with debug mode
-uv run python -m src.cli.main --debug database status
+# Run in debug mode (detailed error information)
+uv run rag-cli --debug database status
+uv run rag-cli --debug model test-llm --provider ollama
 
 # Run with verbose logging
-uv run python -m src.cli.main --verbose user list
+uv run rag-cli --verbose user list
+uv run rag-cli --verbose data ingest --path ./docs
 
 # Use custom environment file
-uv run python -m src.cli.main --env-file custom.env database init
+uv run rag-cli --config-file custom.env database init
 
-# Get help
-uv run python -m src.cli.main --help
-uv run python -m src.cli.main database --help
-uv run python -m src.cli.main user --help
+# Show help
+uv run rag-cli --help
+uv run rag-cli database --help
+uv run rag-cli model --help
+uv run rag-cli data --help
+uv run rag-cli user --help
+
+# Show version information
+uv run rag-cli --version
 ```
 
 ### CLI Features
 
 - **Rich Console Output**: Colorful tables, progress bars, status indicators
-- **Global Options**: Support for `--debug`, `--verbose`, `--env-file`
+- **Global Options**: Support for `--debug`, `--verbose`, `--config-file`  
+- **Server-Independent Operation**: Perform all management tasks without running the RAG server
+- **Real-time Model Testing**: Test LLM and embedding models through actual API calls
 - **Input Validation**: Safe user input and confirmation prompts
 - **Error Handling**: Comprehensive error messages and recovery suggestions
 - **Progress Tracking**: Real-time progress indicators for long-running operations
 - **Help System**: Detailed help for all commands
+- **Developer Friendly**: Debug mode, verbose logging, auto-completion support
 
 ## 🧪 Development
 

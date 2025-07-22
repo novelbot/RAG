@@ -7,8 +7,12 @@ import time
 from typing import Dict, List, Any, Optional, AsyncIterator, Iterator
 import json
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
 
 from src.llm.base import (
     BaseLLMProvider, LLMRequest, LLMResponse, LLMStreamChunk, 
@@ -35,6 +39,8 @@ class GeminiProvider(BaseLLMProvider):
         Args:
             config: Provider configuration
         """
+        if genai is None:
+            raise ImportError("Google GenAI SDK not installed. Install with: pip install google-genai")
         super().__init__(config)
         
         # Default models if not specified

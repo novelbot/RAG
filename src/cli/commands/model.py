@@ -57,7 +57,30 @@ def test_llm(provider, model, prompt):
         config = get_config()
         
         # Initialize LLM manager
-        llm_manager = LLMManager(config.llm)
+        from src.llm.manager import ProviderConfig
+        from src.llm.base import LLMProvider
+        
+        # Convert config.llm to ProviderConfig format
+        provider_configs = []
+        
+        # Map string provider names to enum values
+        provider_mapping = {
+            'openai': LLMProvider.OPENAI,
+            'gemini': LLMProvider.GEMINI,
+            'claude': LLMProvider.CLAUDE,
+            'ollama': LLMProvider.OLLAMA
+        }
+        
+        # Create provider config for the configured provider
+        if config.llm.provider in provider_mapping:
+            provider_config = ProviderConfig(
+                provider=provider_mapping[config.llm.provider],
+                config=config.llm,
+                enabled=True
+            )
+            provider_configs.append(provider_config)
+        
+        llm_manager = LLMManager(provider_configs)
         
         providers_to_test = [provider] if provider else ['openai', 'gemini', 'claude', 'ollama']
         results = []
@@ -67,7 +90,8 @@ def test_llm(provider, model, prompt):
             
             try:
                 # Check if provider is configured
-                if prov not in llm_manager.providers:
+                provider_enum = provider_mapping.get(prov)
+                if not provider_enum or provider_enum not in llm_manager.providers:
                     console.print(f"[yellow]⚠ {prov} not configured[/yellow]")
                     results.append({
                         'provider': prov,
@@ -96,11 +120,12 @@ def test_llm(provider, model, prompt):
                             temperature=0.7
                         )
                         
-                        # Test the provider
-                        if asyncio.iscoroutinefunction(llm_manager.generate):
-                            response = asyncio.run(llm_manager.generate(test_request, provider=prov))
+                        # Test the provider directly
+                        provider_instance = llm_manager.providers[provider_enum]
+                        if hasattr(provider_instance, 'generate_async'):
+                            response = asyncio.run(provider_instance.generate_async(test_request))
                         else:
-                            response = llm_manager.generate(test_request, provider=prov)
+                            response = provider_instance.generate(test_request)
                         
                         end_time = time.time()
                         response_time = end_time - start_time

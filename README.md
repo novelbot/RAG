@@ -74,11 +74,14 @@ vim .env
 ### 3. 애플리케이션 실행
 
 ```bash
-# 서버 시작
+# 서버 시작 (기본 방법)
 uv run main.py
 
-# 또는 CLI 사용
+# CLI를 통한 서버 시작 (개발 모드)
 uv run rag-cli serve --reload
+
+# CLI를 통한 서버 시작 (커스텀 설정)
+uv run rag-cli serve --host 0.0.0.0 --port 8001 --reload
 ```
 
 ## ⚙️ 설정
@@ -1234,135 +1237,194 @@ print(f"컴플라이언스 태그: {enriched_metadata['compliance']}")
 
 ## 🖥️ CLI 인터페이스
 
-프로덕션 레디 Click 기반 CLI 인터페이스를 통해 RAG 서버의 모든 측면을 관리할 수 있습니다.
+프로덕션 레디 Click 기반 CLI 인터페이스를 통해 RAG 서버의 모든 측면을 관리할 수 있습니다. 서버를 실행하지 않고도 시스템 상태 확인, 모델 테스트, 데이터 처리 등을 수행할 수 있습니다.
+
+### 시스템 관리
+
+```bash
+# 서버 상태 및 설정 확인
+uv run rag-cli status
+
+# 현재 설정 정보 표시
+uv run rag-cli show-config
+
+# 시스템 컴포넌트 테스트
+uv run rag-cli test
+
+# 특정 컴포넌트만 테스트
+uv run rag-cli test --component database
+
+# 서버 시작 (개발 모드)
+uv run rag-cli serve --reload
+
+# 서버 시작 (커스텀 설정)
+uv run rag-cli serve --host 0.0.0.0 --port 8001 --reload
+```
 
 ### 데이터베이스 관리
 
 ```bash
-# 데이터베이스 초기화 (테이블 생성, 기본 역할/권한, 관리자 계정)
-uv run python -m src.cli.main database init
+# 데이터베이스 상태 확인
+uv run rag-cli database status
 
 # 데이터베이스 연결 테스트
-uv run python -m src.cli.main database test
+uv run rag-cli database test
 
-# 데이터베이스 상태 확인
-uv run python -m src.cli.main database status
+# 데이터베이스 초기화 (테이블 생성, 기본 역할/권한, 관리자 계정)
+uv run rag-cli database init
 
 # 데이터베이스 백업
-uv run python -m src.cli.main database backup --output backup.sql
+uv run rag-cli database backup --output backup.sql
 
 # 데이터베이스 복원
-uv run python -m src.cli.main database restore --input backup.sql
+uv run rag-cli database restore --input backup.sql
+
+# 데이터베이스 마이그레이션
+uv run rag-cli database migrate
 ```
 
 ### 사용자 관리
 
 ```bash
+# 사용자 목록 조회
+uv run rag-cli user list
+
 # 새 사용자 생성
-uv run python -m src.cli.main user create --username john --email john@example.com --role user
+uv run rag-cli user create --username john --email john@example.com --role user
 
 # 관리자 사용자 생성
-uv run python -m src.cli.main user create --username admin --email admin@company.com --role admin
-
-# 사용자 목록 조회
-uv run python -m src.cli.main user list
+uv run rag-cli user create --username admin --email admin@company.com --role admin
 
 # 특정 역할 사용자만 조회
-uv run python -m src.cli.main user list --role admin
+uv run rag-cli user list --role admin
 
 # 활성 사용자만 조회
-uv run python -m src.cli.main user list --active
+uv run rag-cli user list --active
 
 # JSON 형식으로 사용자 목록 출력
-uv run python -m src.cli.main user list --format json
+uv run rag-cli user list --format json
+
+# 사용자 정보 업데이트
+uv run rag-cli user update --username john --email newemail@example.com
+
+# 사용자 삭제
+uv run rag-cli user delete --username john
+
+# 사용자 그룹 확인
+uv run rag-cli user groups --username john
 ```
 
 ### 모델 테스트 및 구성
 
 ```bash
 # 모든 LLM 프로바이더 테스트
-uv run python -m src.cli.main model test-llm
+uv run rag-cli model test-llm
 
 # 특정 프로바이더 테스트
-uv run python -m src.cli.main model test-llm --provider openai
+uv run rag-cli model test-llm --provider ollama
+uv run rag-cli model test-llm --provider openai
 
 # 커스텀 프롬프트로 테스트
-uv run python -m src.cli.main model test-llm --prompt "양자 컴퓨팅에 대해 설명해주세요"
+uv run rag-cli model test-llm --prompt "양자 컴퓨팅에 대해 설명해주세요"
+
+# 특정 모델로 테스트
+uv run rag-cli model test-llm --provider ollama --model llama3.2
 
 # 임베딩 모델 테스트
-uv run python -m src.cli.main model test-embedding
+uv run rag-cli model test-embedding
+uv run rag-cli model test-embedding --provider openai
 
 # 모델 성능 벤치마크
-uv run python -m src.cli.main model benchmark --iterations 20
+uv run rag-cli model benchmark --iterations 20
+uv run rag-cli model benchmark --provider ollama --concurrent 5
 
 # 사용 가능한 모델 목록
-uv run python -m src.cli.main model list-models
+uv run rag-cli model list-models
+uv run rag-cli model list-models --provider openai
+uv run rag-cli model list-models --type llm
 
 # 모델 설정 변경
-uv run python -m src.cli.main model set-model --llm-provider openai --llm-model gpt-4
+uv run rag-cli model set-model --llm-provider openai --llm-model gpt-4
+uv run rag-cli model set-model --embedding-provider openai --embedding-model text-embedding-3-large
 ```
 
 ### 데이터 관리
 
 ```bash
+# 데이터 상태 확인
+uv run rag-cli data status
+
 # 디렉토리에서 데이터 수집
-uv run python -m src.cli.main data ingest --path ./documents --recursive
+uv run rag-cli data ingest --path ./documents --recursive
 
 # 특정 파일 형식만 처리
-uv run python -m src.cli.main data ingest --path ./docs --file-types pdf,docx
+uv run rag-cli data ingest --path ./docs --file-types pdf,docx,txt
+
+# 배치 크기 지정하여 처리
+uv run rag-cli data ingest --path ./data --batch-size 50
+
+# 강제 재처리
+uv run rag-cli data ingest --path ./documents --force
 
 # 데이터 동기화
-uv run python -m src.cli.main data sync --source filesystem
-
-# 데이터 상태 확인
-uv run python -m src.cli.main data status
+uv run rag-cli data sync --source filesystem
 
 # 데이터 정리
-uv run python -m src.cli.main data cleanup --orphaned
+uv run rag-cli data cleanup --orphaned
 ```
 
 ### 설정 관리
 
 ```bash
-# .env 파일 템플릿 생성
-cp .env.example .env
+# 현재 설정 확인 (민감한 정보 숨김)
+uv run rag-cli config show
 
-# 환경 변수를 통한 설정 관리
-# .env 파일을 직접 편집하여 설정 변경
-
-# 현재 설정 확인
-uv run python -m src.cli.main config show
+# 민감한 정보 포함하여 설정 확인
+uv run rag-cli config show --show-sensitive
 
 # 설정 유효성 검증
-uv run python -m src.cli.main config validate
+uv run rag-cli config validate
+
+# .env 파일 템플릿 생성
+cp .env.example .env
 ```
 
 ### CLI 고급 기능
 
 ```bash
-# 디버그 모드로 실행
-uv run python -m src.cli.main --debug database status
+# 디버그 모드로 실행 (상세한 오류 정보 포함)
+uv run rag-cli --debug database status
+uv run rag-cli --debug model test-llm --provider ollama
 
 # 상세 로그와 함께 실행
-uv run python -m src.cli.main --verbose user list
+uv run rag-cli --verbose user list
+uv run rag-cli --verbose data ingest --path ./docs
 
 # 커스텀 환경 파일 사용
-uv run python -m src.cli.main --env-file custom.env database init
+uv run rag-cli --config-file custom.env database init
 
 # 도움말 보기
-uv run python -m src.cli.main --help
-uv run python -m src.cli.main database --help
-uv run python -m src.cli.main user --help
+uv run rag-cli --help
+uv run rag-cli database --help
+uv run rag-cli model --help
+uv run rag-cli data --help
+uv run rag-cli user --help
+
+# 버전 정보
+uv run rag-cli --version
 ```
 
 ### CLI 특징
 
 - **Rich 콘솔 출력**: 컬러풀한 테이블, 진행 표시줄, 상태 표시
-- **글로벌 옵션**: `--debug`, `--verbose`, `--env-file` 지원
+- **글로벌 옵션**: `--debug`, `--verbose`, `--config-file` 지원  
+- **서버 없이 작동**: RAG 서버를 실행하지 않고도 모든 관리 작업 수행 가능
+- **실시간 모델 테스트**: 실제 API 호출을 통한 LLM 및 임베딩 모델 테스트
 - **입력 검증**: 안전한 사용자 입력 및 확인 프롬프트
 - **에러 처리**: 포괄적인 에러 메시지 및 복구 제안
 - **진행 상태**: 장시간 작업에 대한 실시간 진행률 표시
 - **도움말 시스템**: 모든 명령에 대한 상세한 도움말
+- **개발자 친화적**: 디버그 모드, 상세 로그, 자동완성 지원
 
 ## 🧪 개발
 

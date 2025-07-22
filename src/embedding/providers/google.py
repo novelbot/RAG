@@ -5,7 +5,11 @@ Google Embedding Provider implementation.
 import time
 import asyncio
 from typing import List, Dict, Any, Optional
-from google.genai import Client, types
+try:
+    from google.genai import Client, types
+except ImportError:
+    Client = None
+    types = None
 
 from src.embedding.base import (
     BaseEmbeddingProvider, EmbeddingConfig, EmbeddingRequest, 
@@ -50,6 +54,8 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
     
     def __init__(self, config: EmbeddingConfig):
         """Initialize Google embedding provider."""
+        if Client is None:
+            raise ImportError("Google GenAI SDK not installed. Install with: pip install google-genai")
         if config.provider != EmbeddingProvider.GOOGLE:
             raise ConfigurationError(f"Invalid provider: {config.provider}")
         

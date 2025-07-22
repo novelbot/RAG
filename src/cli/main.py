@@ -73,6 +73,8 @@ pass_cli_context = click.make_pass_decorator(CLIContext, ensure=True)
 
 def handle_exceptions(f):
     """Decorator to handle common CLI exceptions."""
+    import functools
+    @functools.wraps(f)
     def wrapper(*args, **kwargs):
         try:
             return f(*args, **kwargs)
@@ -133,7 +135,7 @@ def cli(ctx, debug, verbose, config_file):
         console.print(f"[dim]Using config file: {config_file}[/dim]")
 
 
-@cli.command()
+@click.command()
 @pass_cli_context
 @handle_exceptions
 def status(ctx):
@@ -159,7 +161,7 @@ def status(ctx):
     ctx.log("Status check completed", "verbose")
 
 
-@cli.command(name='config')
+@click.command(name='show-config')
 @click.option('--show-sensitive/--hide-sensitive', default=False,
               help='Show sensitive configuration values like API keys.')
 @pass_cli_context
@@ -195,7 +197,7 @@ def show_config(ctx, show_sensitive):
     ctx.log("Configuration displayed", "verbose")
 
 
-@cli.command()
+@click.command()
 @click.option('--component', type=click.Choice(['all', 'config', 'database', 'milvus', 'llm', 'embedding']),
               default='all', help='Component to test.')
 @pass_cli_context
@@ -242,7 +244,7 @@ def test(ctx, component):
     ctx.log("Component testing completed", "verbose")
 
 
-@cli.command()
+@click.command()
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
 @click.option('--port', default=8000, help='Port to bind to')
 @click.option('--reload', is_flag=True, help='Enable auto-reload')
@@ -269,7 +271,7 @@ def serve(ctx, host, port, reload):
     # Start server
     try:
         from src.core.app import run_server
-        run_server()
+        run_server(host=host, port=port, reload=reload)
     except ImportError as e:
         ctx.log(f"Failed to import server module: {e}", "error")
         raise click.ClickException("Server module not available")
@@ -288,6 +290,12 @@ cli.add_command(user_group, name='user')
 cli.add_command(database_group, name='database')
 cli.add_command(model_group, name='model')
 cli.add_command(config_group, name='config')
+
+# Add individual commands manually
+cli.add_command(status)
+cli.add_command(show_config)
+cli.add_command(test)
+cli.add_command(serve)
 
 
 if __name__ == "__main__":
