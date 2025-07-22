@@ -89,19 +89,21 @@ class OllamaProvider(BaseLLMProvider):
                 "stream": False,
             }
             
-            # Add optional parameters
-            if request.temperature is not None:
-                params["temperature"] = request.temperature
+            # Note: Ollama doesn't have direct parameters like temperature/max_tokens
+            # They need to be passed within the "options" parameter
+            options = {}
             
-            # Note: Ollama doesn't have a direct max_tokens parameter
-            # It uses other parameters like num_predict
+            if request.temperature is not None:
+                options["temperature"] = request.temperature
+            
             if request.max_tokens:
-                params["options"] = {"num_predict": request.max_tokens}
+                options["num_predict"] = request.max_tokens
             
             if request.stop_sequences:
-                if "options" not in params:
-                    params["options"] = {}
-                params["options"]["stop"] = request.stop_sequences
+                options["stop"] = request.stop_sequences
+            
+            if options:
+                params["options"] = options
             
             # Make API call
             response = await self._async_client.chat(**params)
@@ -154,19 +156,21 @@ class OllamaProvider(BaseLLMProvider):
                 "stream": False,
             }
             
-            # Add optional parameters
-            if request.temperature is not None:
-                params["temperature"] = request.temperature
+            # Note: Ollama doesn't have direct parameters like temperature/max_tokens
+            # They need to be passed within the "options" parameter
+            options = {}
             
-            # Note: Ollama doesn't have a direct max_tokens parameter
-            # It uses other parameters like num_predict
+            if request.temperature is not None:
+                options["temperature"] = request.temperature
+            
             if request.max_tokens:
-                params["options"] = {"num_predict": request.max_tokens}
+                options["num_predict"] = request.max_tokens
             
             if request.stop_sequences:
-                if "options" not in params:
-                    params["options"] = {}
-                params["options"]["stop"] = request.stop_sequences
+                options["stop"] = request.stop_sequences
+            
+            if options:
+                params["options"] = options
             
             # Make API call
             response = self._client.chat(**params)
@@ -220,17 +224,21 @@ class OllamaProvider(BaseLLMProvider):
                 "stream": True,
             }
             
-            # Add optional parameters
+            # Note: Ollama doesn't have direct parameters like temperature/max_tokens
+            # They need to be passed within the "options" parameter
+            options = {}
+            
             if request.temperature is not None:
-                params["temperature"] = request.temperature
+                options["temperature"] = request.temperature
             
             if request.max_tokens:
-                params["options"] = {"num_predict": request.max_tokens}
+                options["num_predict"] = request.max_tokens
             
             if request.stop_sequences:
-                if "options" not in params:
-                    params["options"] = {}
-                params["options"]["stop"] = request.stop_sequences
+                options["stop"] = request.stop_sequences
+            
+            if options:
+                params["options"] = options
             
             # Make streaming API call
             async for chunk in await self._async_client.chat(**params):
@@ -302,17 +310,21 @@ class OllamaProvider(BaseLLMProvider):
                 "stream": True,
             }
             
-            # Add optional parameters
+            # Note: Ollama doesn't have direct parameters like temperature/max_tokens
+            # They need to be passed within the "options" parameter
+            options = {}
+            
             if request.temperature is not None:
-                params["temperature"] = request.temperature
+                options["temperature"] = request.temperature
             
             if request.max_tokens:
-                params["options"] = {"num_predict": request.max_tokens}
+                options["num_predict"] = request.max_tokens
             
             if request.stop_sequences:
-                if "options" not in params:
-                    params["options"] = {}
-                params["options"]["stop"] = request.stop_sequences
+                options["stop"] = request.stop_sequences
+            
+            if options:
+                params["options"] = options
             
             # Make streaming API call
             for chunk in self._client.chat(**params):
