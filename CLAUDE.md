@@ -93,4 +93,5 @@ project/
 - Use sequential thinking MCP to build programming logic.
 - Use task-master MCP to create PRD before implementing the code.
 - Update in task-master when you finish the task.
+- Always execute 'uv sync' when you start a new terminal.
 - Use playwright MCP to test and debug web user inferface.
