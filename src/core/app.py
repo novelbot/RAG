@@ -37,11 +37,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
 async def initialize_components(config):
     """Initialize all application components"""
+    # Initialize metrics database
+    try:
+        from ..metrics.database import init_metrics_db
+        await init_metrics_db("metrics.db")
+        logger.info("✅ Metrics database initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize metrics database: {e}")
+    
     # TODO: Initialize database connections
     # TODO: Initialize Milvus connection
     # TODO: Initialize LLM clients
     # TODO: Initialize embedding models
-    pass
 
 
 async def cleanup_components():

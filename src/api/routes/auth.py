@@ -2,7 +2,7 @@
 Authentication API routes for user login, logout, and token management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer
 from typing import Dict, Any
 import asyncio
@@ -10,18 +10,20 @@ import asyncio
 from ...auth.dependencies import MockUser
 from ...auth.sqlite_auth import auth_manager
 from ..schemas import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse
+from ...metrics.collectors import session_collector
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 security = HTTPBearer()
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest) -> TokenResponse:
+async def login(request: LoginRequest, http_request: Request) -> TokenResponse:
     """
     Authenticate user and return JWT token.
     
     Args:
         request: Login credentials containing username and password
+        http_request: FastAPI request object for extracting IP and user agent
         
     Returns:
         TokenResponse: JWT access token and refresh token
@@ -34,6 +36,25 @@ async def login(request: LoginRequest) -> TokenResponse:
     
     if user_data:
         token = auth_manager.create_token(user_data)
+        
+        # Log successful login event
+        try:
+            # Extract client information
+            ip_address = http_request.headers.get("X-Forwarded-For", 
+                                                 http_request.headers.get("X-Real-IP", 
+                                                 getattr(http_request.client, "host", "unknown") if http_request.client else "unknown"))
+            user_agent = http_request.headers.get("user-agent", "")
+            
+            # Start user session and log login
+            await session_collector.start_session(
+                user_id=str(user_data['id']),
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+        except Exception as e:
+            # Don't fail login if logging fails
+            print(f"Failed to log login event: {e}")
+        
         return TokenResponse(
             access_token=token,
             refresh_token=token,  # 간단히 같은 토큰 사용
@@ -94,6 +115,17 @@ async def logout(token: str = Depends(security)) -> Dict[str, str]:
     Returns:
         Dict: Success message
     """
+    # Get user info before invalidating token
+    try:
+        session_data = auth_manager.verify_token(token.credentials)
+        if session_data:
+            user_id = str(session_data.get('user_id'))
+            # Log logout event
+            await session_collector.end_session(user_id)
+    except Exception as e:
+        # Don't fail logout if logging fails
+        print(f"Failed to log logout event: {e}")
+    
     # 실제 토큰 무효화
     auth_manager.logout(token.credentials)
     return {"message": "Successfully logged out"}

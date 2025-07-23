@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.security import HTTPBearer
 from typing import Dict, List, Any, Optional
 import asyncio
+import time
 from pathlib import Path
 
 from ...auth.dependencies import get_current_user
+from ...metrics.collectors import document_collector
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 security = HTTPBearer()
@@ -54,6 +56,8 @@ async def upload_document(
     Raises:
         HTTPException: 400 if file type not supported
     """
+    upload_start_time = time.time()
+    
     # Validate file type
     allowed_extensions = {'.pdf', '.txt', '.docx', '.md'}
     file_extension = Path(file.filename).suffix.lower()
@@ -68,8 +72,28 @@ async def upload_document(
     await asyncio.sleep(0.5)
     
     # Generate document ID
-    user_id = str(current_user.get("id", current_user.get("username", "unknown")))
+    user_id = str(getattr(current_user, 'id', getattr(current_user, 'username', 'unknown')))
     document_id = f"doc_{hash(file.filename + user_id)}"
+    
+    # Calculate processing time
+    processing_time_ms = int((time.time() - upload_start_time) * 1000)
+    
+    # Log document upload event
+    try:
+        await document_collector.log_document_upload(
+            document_id=document_id,
+            filename=file.filename,
+            user_id=user_id,
+            file_size_bytes=file.size or 0,
+            processing_time_ms=processing_time_ms,
+            metadata={
+                "file_extension": file_extension,
+                "content_type": file.content_type
+            }
+        )
+    except Exception as e:
+        # Don't fail upload if logging fails
+        print(f"Failed to log document upload: {e}")
     
     # Add background task for document processing
     background_tasks.add_task(process_document, document_id, file.filename, user_id)
@@ -80,7 +104,7 @@ async def upload_document(
         "size": file.size,
         "status": "processing",
         "message": "Document uploaded successfully and is being processed",
-        "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
+        "user_id": user_id
     }
 
 
@@ -110,11 +134,15 @@ async def upload_batch_documents(
             detail="Maximum 10 files allowed per batch upload"
         )
     
+    upload_start_time = time.time()
+    
     # Simulate async batch processing
     await asyncio.sleep(0.8)
     
-    user_id = str(current_user.get("id", current_user.get("username", "unknown")))
+    user_id = str(getattr(current_user, 'id', getattr(current_user, 'username', 'unknown')))
     results = []
+    total_size = 0
+    
     for file in files:
         document_id = f"doc_{hash(file.filename + user_id)}"
         results.append({
@@ -123,6 +151,29 @@ async def upload_batch_documents(
             "status": "processing"
         })
         
+        total_size += file.size or 0
+        
+        # Log each document upload event
+        try:
+            file_extension = Path(file.filename).suffix.lower()
+            processing_time_ms = int((time.time() - upload_start_time) * 1000)
+            
+            await document_collector.log_document_upload(
+                document_id=document_id,
+                filename=file.filename,
+                user_id=user_id,
+                file_size_bytes=file.size or 0,
+                processing_time_ms=processing_time_ms,
+                metadata={
+                    "file_extension": file_extension,
+                    "content_type": file.content_type,
+                    "batch_upload": True
+                }
+            )
+        except Exception as e:
+            # Don't fail upload if logging fails
+            print(f"Failed to log batch document upload for {file.filename}: {e}")
+        
         # Add background task for each document
         background_tasks.add_task(process_document, document_id, file.filename, user_id)
     
@@ -130,7 +181,7 @@ async def upload_batch_documents(
         "batch_id": f"batch_{hash(str([f.filename for f in files]))}",
         "uploaded_count": len(files),
         "documents": results,
-        "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
+        "user_id": user_id
     }
 
 
@@ -260,6 +311,22 @@ async def delete_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
+    
+    # Log document deletion event
+    try:
+        user_id = str(getattr(current_user, 'id', getattr(current_user, 'username', 'unknown')))
+        # For this mock implementation, we'll use a generic filename
+        # In a real implementation, you'd fetch the actual filename from database
+        filename = f"document_{document_id.split('_')[-1]}.pdf"
+        
+        await document_collector.log_document_delete(
+            document_id=document_id,
+            filename=filename,
+            user_id=user_id
+        )
+    except Exception as e:
+        # Don't fail deletion if logging fails
+        print(f"Failed to log document deletion: {e}")
     
     return {
         "message": f"Document {document_id} deleted successfully",

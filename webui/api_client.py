@@ -283,6 +283,35 @@ class RAGAPIClient:
         else:
             return {"error": "Failed to get metrics"}
     
+    def get_recent_activity(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get recent system activity events"""
+        params = {"limit": limit}
+        response = self._make_request("GET", "/api/v1/monitoring/metrics/recent-activity", params=params)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return []
+    
+    def get_query_trends(self, days: int = 7) -> Dict[str, Any]:
+        """Get query trends and statistics"""
+        params = {"days": days}
+        response = self._make_request("GET", "/api/v1/monitoring/metrics/query-trends", params=params)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"daily_trends": [], "summary": {"total_queries": 0, "success_rate": 0.0}}
+    
+    def get_user_activity_stats(self) -> Dict[str, Any]:
+        """Get user activity statistics"""
+        response = self._make_request("GET", "/api/v1/monitoring/metrics/user-activity")
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"active_users": {"last_30_minutes": 0, "last_hour": 0, "last_24_hours": 0}}
+    
     # User Management (Admin only)
     def get_users(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         """Get list of users (admin only)"""

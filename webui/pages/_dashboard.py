@@ -46,36 +46,75 @@ def show():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        status_color = "🟢" if health_check.get("healthy", False) else "🔴"
+        # Fix: Use 'overall_status' field from system status API response
+        overall_status = system_status.get('overall_status', 'unknown')
+        status_color = "🟢" if overall_status == "operational" else "🟡" if overall_status == "degraded" else "🔴"
         st.metric(
             label="System Status",
-            value=f"{status_color} {system_status.get('status', 'Unknown').title()}"
+            value=f"{status_color} {overall_status.title()}"
         )
     
     with col2:
         # Get data from real metrics
         app_metrics = metrics.get("application_metrics", {})
-        total_documents = app_metrics.get("total_documents", 1247)
+        total_documents = app_metrics.get("total_documents", 0)
+        
+        # Calculate delta from query trends if available
+        try:
+            query_trends = api_client.get_query_trends(days=2)
+            daily_trends = query_trends.get("daily_trends", [])
+            if len(daily_trends) >= 2:
+                today_docs = daily_trends[-1].get("query_count", 0) if daily_trends else 0
+                yesterday_docs = daily_trends[-2].get("query_count", 0) if len(daily_trends) > 1 else 0
+                doc_delta = today_docs - yesterday_docs
+                delta_text = f"{doc_delta:+d} from yesterday" if doc_delta != 0 else "No change"
+            else:
+                delta_text = "No historical data"
+        except:
+            delta_text = None
+        
         st.metric(
             label="Total Documents",
             value=f"{total_documents:,}",
-            delta="12 new today"
+            delta=delta_text
         )
     
     with col3:
-        total_queries = app_metrics.get("total_queries", 3456)
+        total_queries = app_metrics.get("total_queries", 0)
+        
+        # Calculate query delta from trends
+        try:
+            query_trends = api_client.get_query_trends(days=2)
+            daily_trends = query_trends.get("daily_trends", [])
+            if len(daily_trends) >= 1:
+                today_queries = daily_trends[-1].get("query_count", 0) if daily_trends else 0
+                query_delta_text = f"{today_queries} today"
+            else:
+                query_delta_text = "No data today"
+        except:
+            query_delta_text = None
+        
         st.metric(
             label="Total Queries",
             value=f"{total_queries:,}",
-            delta="156 today"
+            delta=query_delta_text
         )
     
     with col4:
-        active_users = app_metrics.get("active_users", 23)
+        active_users = app_metrics.get("active_users", 0)
+        
+        # Get real user activity stats
+        try:
+            user_activity = api_client.get_user_activity_stats()
+            active_now = user_activity.get("active_users", {}).get("last_30_minutes", 0)
+            user_delta_text = f"{active_now} active now"
+        except:
+            user_delta_text = None
+        
         st.metric(
             label="Active Users",
             value=active_users,
-            delta="3 online now"
+            delta=user_delta_text
         )
     
     st.markdown("---")
@@ -86,13 +125,35 @@ def show():
     with col1:
         st.subheader("📈 Query Volume (Last 7 Days)")
         
-        # Mock data for query volume chart
-        dates = pd.date_range(
-            start=datetime.now() - timedelta(days=6),
-            end=datetime.now(),
-            freq='D'
-        )
-        query_counts = [45, 67, 89, 123, 98, 134, 156]  # Mock data
+        # Get real query trend data
+        try:
+            query_trends = api_client.get_query_trends(days=7)
+            daily_trends = query_trends.get("daily_trends", [])
+            
+            if daily_trends:
+                # Extract dates and counts from real data
+                dates = [trend['date'] for trend in daily_trends]
+                query_counts = [trend['query_count'] for trend in daily_trends]
+                
+                # Convert dates to datetime for proper plotting
+                dates = pd.to_datetime(dates)
+            else:
+                # Fallback to empty chart if no data
+                dates = pd.date_range(
+                    start=datetime.now() - timedelta(days=6),
+                    end=datetime.now(),
+                    freq='D'
+                )
+                query_counts = [0] * 7
+        except Exception as e:
+            st.error(f"Failed to load query trends: {e}")
+            # Fallback data
+            dates = pd.date_range(
+                start=datetime.now() - timedelta(days=6),
+                end=datetime.now(),
+                freq='D'
+            )
+            query_counts = [0] * 7
         
         fig_queries = px.line(
             x=dates,
@@ -182,50 +243,41 @@ def show():
     st.markdown("---")
     st.subheader("📝 Recent Activity")
     
-    # Mock recent activity data
-    recent_activities = [
-        {
-            "time": "2 minutes ago",
-            "user": "john.doe",
-            "action": "Uploaded document",
-            "details": "financial_report_2024.pdf"
-        },
-        {
-            "time": "5 minutes ago", 
-            "user": "jane.smith",
-            "action": "Performed query",
-            "details": "What is the revenue trend?"
-        },
-        {
-            "time": "8 minutes ago",
-            "user": "admin",
-            "action": "Created user",
-            "details": "new.user@company.com"
-        },
-        {
-            "time": "12 minutes ago",
-            "user": "mike.jones",
-            "action": "Deleted document",
-            "details": "old_manual.docx"
-        },
-        {
-            "time": "15 minutes ago",
-            "user": "sarah.wilson",
-            "action": "Updated settings",
-            "details": "Changed LLM provider to Claude"
-        }
-    ]
-    
-    for activity in recent_activities:
-        col1, col2, col3, col4 = st.columns([2, 2, 3, 3])
-        with col1:
-            st.text(activity["time"])
-        with col2:
-            st.text(activity["user"])
-        with col3:
-            st.text(activity["action"])
-        with col4:
-            st.text(activity["details"])
+    # Get real recent activity data
+    try:
+        recent_activities = api_client.get_recent_activity(limit=20)
+        
+        if recent_activities:
+            # Display header
+            col1, col2, col3, col4 = st.columns([2, 2, 3, 3])
+            with col1:
+                st.markdown("**Time**")
+            with col2:
+                st.markdown("**User**") 
+            with col3:
+                st.markdown("**Action**")
+            with col4:
+                st.markdown("**Details**")
+            
+            st.markdown("---")
+            
+            # Display activities
+            for activity in recent_activities[:10]:  # Show top 10
+                col1, col2, col3, col4 = st.columns([2, 2, 3, 3])
+                with col1:
+                    st.text(activity.get("time", "Unknown"))
+                with col2:
+                    st.text(activity.get("user", "Unknown"))
+                with col3:
+                    st.text(activity.get("action", "Unknown"))
+                with col4:
+                    st.text(activity.get("details", ""))
+        else:
+            st.info("No recent activity data available. Activities will appear here as users interact with the system.")
+            
+    except Exception as e:
+        st.error(f"Failed to load recent activity: {e}")
+        st.info("Unable to load recent activity. Please check system connectivity.")
     
     # Resource Usage
     st.markdown("---")
