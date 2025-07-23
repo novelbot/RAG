@@ -43,7 +43,7 @@ def show_rag_query(api_client):
         col1, col2 = st.columns(2)
         
         with col1:
-            k_value = st.slider("Number of retrieved documents (k)", 1, 20, 5)
+            k_value = st.slider("Number of retrieved documents (k)", 1, 20, 5, key="rag_k_value")
             # Get available LLM providers from config
             available_providers = list(config.get_enabled_llm_providers().keys())
             if not available_providers:
@@ -51,18 +51,19 @@ def show_rag_query(api_client):
             
             llm_provider = st.selectbox(
                 "LLM Provider",
-                available_providers
+                available_providers,
+                key="rag_llm_provider"
             )
         
         with col2:
-            similarity_threshold = st.slider("Similarity threshold", 0.0, 1.0, 0.7, 0.1)
+            similarity_threshold = st.slider("Similarity threshold", 0.0, 1.0, 0.7, 0.1, key="rag_similarity_threshold")
             model_options = {
                 "openai": ["gpt-4", "gpt-3.5-turbo"],
                 "anthropic": ["claude-3-5-sonnet-latest", "claude-3-haiku"],
                 "google": ["gemini-2.0-flash-001", "gemini-1.5-pro"],
                 "ollama": ["llama3.2", "gemma2"]
             }
-            model = st.selectbox("Model", model_options.get(llm_provider, ["gpt-4"]))
+            model = st.selectbox("Model", model_options.get(llm_provider, ["gpt-4"]), key="rag_model")
     
     # Query input
     query = st.text_area(
@@ -80,8 +81,8 @@ def show_rag_query(api_client):
             enable_reranking = st.checkbox("Enable result reranking", value=False)
         
         with col2:
-            temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1)
-            max_tokens = st.number_input("Max tokens", 100, 4000, 1000)
+            temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1, key="rag_temperature")
+            max_tokens = st.number_input("Max tokens", 100, 4000, 1000, key="rag_max_tokens")
     
     # Query button
     if st.button("🚀 Query", type="primary", use_container_width=True):
@@ -119,12 +120,13 @@ def show_chat_interface(api_client):
         with col1:
             chat_model = st.selectbox(
                 "Model",
-                ["gpt-4", "gpt-3.5-turbo", "claude-3-5-sonnet-latest", "gemini-2.0-flash-001"]
+                ["gpt-4", "gpt-3.5-turbo", "claude-3-5-sonnet-latest", "gemini-2.0-flash-001"],
+                key="chat_model"
             )
         
         with col2:
-            chat_temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1)
-            chat_max_tokens = st.number_input("Max tokens", 100, 4000, 1000)
+            chat_temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1, key="chat_temperature")
+            chat_max_tokens = st.number_input("Max tokens", 100, 4000, 1000, key="chat_max_tokens")
     
     # Display chat messages
     chat_container = st.container()
@@ -186,13 +188,14 @@ def show_single_llm(api_client):
     with col1:
         single_model = st.selectbox(
             "Model",
-            ["gpt-4", "claude-3-5-sonnet-latest", "gemini-2.0-flash-001", "llama3.2"]
+            ["gpt-4", "claude-3-5-sonnet-latest", "gemini-2.0-flash-001", "llama3.2"],
+            key="single_llm_model"
         )
-        context = st.text_area("Context (optional)", height=100)
+        context = st.text_area("Context (optional)", height=100, key="single_context")
     
     with col2:
         single_temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1, key="single_temp")
-        response_format = st.selectbox("Response Format", ["text", "markdown", "json"])
+        response_format = st.selectbox("Response Format", ["text", "markdown", "json"], key="single_response_format")
     
     # Query input
     single_query = st.text_area(
@@ -224,8 +227,8 @@ def show_ensemble_llm(api_client):
     col1, col2 = st.columns(2)
     
     with col1:
-        ensemble_size = st.slider("Ensemble size", 2, 5, 3)
-        consensus_threshold = st.slider("Consensus threshold", 0.5, 1.0, 0.7, 0.1)
+        ensemble_size = st.slider("Ensemble size", 2, 5, 3, key="ensemble_size")
+        consensus_threshold = st.slider("Consensus threshold", 0.5, 1.0, 0.7, 0.1, key="ensemble_consensus_threshold")
     
     with col2:
         parallel_generation = st.checkbox("Parallel generation", value=True)
@@ -265,27 +268,13 @@ def execute_rag_query(api_client, query, config):
     """Execute RAG query and display results"""
     with st.spinner("Searching knowledge base..."):
         try:
-            # Mock RAG response for demo
-            response = {
-                "answer": "Based on the retrieved documents, the company's Q1 2024 revenue was $2.3 million, representing a 15% increase compared to Q4 2023. This growth was primarily driven by increased product sales and new client acquisitions.",
-                "sources": [
-                    {
-                        "document": "quarterly_report_q1_2024.pdf",
-                        "relevance_score": 0.95,
-                        "content_preview": "Q1 2024 revenue: $2.3M, up 15% from previous quarter..."
-                    },
-                    {
-                        "document": "financial_summary_2024.xlsx",
-                        "relevance_score": 0.87,
-                        "content_preview": "Revenue breakdown by segment shows consistent growth..."
-                    }
-                ],
-                "metadata": {
-                    "query_time": "2.3 seconds",
-                    "documents_retrieved": config["k"],
-                    "model_used": f"{config['llm_provider']}/{config['model']}"
-                }
-            }
+            # Call actual RAG API
+            response = api_client.query_rag(
+                query=query,
+                k=config["k"],
+                llm_provider=config["llm_provider"],
+                model=config["model"]
+            )
             
             # Display response
             st.success("✅ Query completed successfully!")
@@ -294,45 +283,69 @@ def execute_rag_query(api_client, query, config):
             
             with col1:
                 st.subheader("📝 Answer")
-                st.write(response["answer"])
+                st.write(response.get("answer", "No answer provided"))
                 
                 st.subheader("📚 Sources")
-                for i, source in enumerate(response["sources"], 1):
-                    with st.expander(f"Source {i}: {source['document']} (Relevance: {source['relevance_score']:.2f})"):
-                        st.write(source["content_preview"])
+                sources = response.get("sources", [])
+                if sources:
+                    for i, source in enumerate(sources, 1):
+                        relevance_score = source.get("relevance_score", 0.0)
+                        document_title = source.get("title", source.get("document_id", f"Source {i}"))
+                        excerpt = source.get("excerpt", source.get("content_preview", "No preview available"))
+                        
+                        with st.expander(f"Source {i}: {document_title} (Relevance: {relevance_score:.2f})"):
+                            st.write(excerpt)
+                else:
+                    st.info("No sources found for this query")
             
             with col2:
                 st.subheader("📊 Query Metadata")
-                st.json(response["metadata"])
+                metadata = response.get("metadata", {})
+                display_metadata = {
+                    "processing_time_ms": metadata.get("processing_time_ms", 0),
+                    "model_used": metadata.get("model_used", f"{config['llm_provider']}/{config['model']}"),
+                    "tokens_used": metadata.get("tokens_used", 0),
+                    "confidence_score": metadata.get("confidence_score", 0.0)
+                }
+                st.json(display_metadata)
             
             # Save to history
             save_query_to_history("rag_queries", query, response, config)
             
         except Exception as e:
             st.error(f"❌ Query failed: {str(e)}")
+            st.error("Please check if the RAG server is running and properly configured.")
 
 def execute_chat_query(api_client, messages, config):
     """Execute chat query"""
     try:
-        # Mock chat response for demo
-        user_message = messages[-1]["content"]
+        # Convert messages to API format
+        api_messages = []
+        for msg in messages:
+            api_messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
         
-        # Simple mock responses based on content
-        if "weather" in user_message.lower():
-            response_content = "I don't have access to real-time weather data, but I can help you understand weather patterns or suggest reliable weather sources."
-        elif "time" in user_message.lower():
-            response_content = f"The current time is approximately {datetime.now().strftime('%H:%M')}. However, I recommend checking your system clock for the most accurate time."
-        else:
-            response_content = f"I understand you're asking about: '{user_message}'. While I can't process this through the actual API in this demo, I can help you formulate better queries or discuss the topic in general terms."
+        # Call actual chat API
+        response = api_client.chat_llm(
+            messages=api_messages,
+            model=config["model"],
+            temperature=config["temperature"],
+            max_tokens=config["max_tokens"]
+        )
         
-        return {
-            "content": response_content,
-            "metadata": {
-                "model": config["model"],
-                "temperature": config["temperature"],
-                "response_time": "1.2 seconds"
+        if response:
+            return {
+                "content": response.get("response", response.get("content", "No response received")),
+                "metadata": response.get("metadata", {
+                    "model": config["model"],
+                    "temperature": config["temperature"],
+                    "response_time": "unknown"
+                })
             }
-        }
+        else:
+            return None
         
     except Exception as e:
         st.error(f"❌ Chat failed: {str(e)}")
@@ -342,16 +355,13 @@ def execute_single_llm_query(api_client, query, config):
     """Execute single LLM query"""
     with st.spinner("Generating response..."):
         try:
-            # Mock single LLM response
-            response = {
-                "response": f"This is a mock response to your query: '{query}'. In a real implementation, this would be generated by {config['model']} with temperature {config['temperature']}.",
-                "metadata": {
-                    "model": config["model"],
-                    "temperature": config["temperature"],
-                    "response_time": "1.8 seconds",
-                    "tokens_used": 87
-                }
-            }
+            # Call actual single LLM API
+            response = api_client.generate_single_llm(
+                query=query,
+                context=config.get("context", ""),
+                model=config["model"],
+                temperature=config["temperature"]
+            )
             
             st.success("✅ Response generated!")
             
@@ -359,71 +369,84 @@ def execute_single_llm_query(api_client, query, config):
             
             with col1:
                 st.subheader("📝 Response")
+                response_content = response.get("response", response.get("content", "No response received"))
+                
                 if config["response_format"] == "markdown":
-                    st.markdown(response["response"])
+                    st.markdown(response_content)
                 elif config["response_format"] == "json":
                     try:
-                        st.json(json.loads(response["response"]))
+                        st.json(json.loads(response_content))
                     except:
-                        st.code(response["response"], language="json")
+                        st.code(response_content, language="json")
                 else:
-                    st.write(response["response"])
+                    st.write(response_content)
             
             with col2:
                 st.subheader("📊 Metadata")
-                st.json(response["metadata"])
+                metadata = response.get("metadata", {
+                    "model": config["model"],
+                    "temperature": config["temperature"],
+                    "response_time": "unknown",
+                    "tokens_used": 0
+                })
+                st.json(metadata)
                 
         except Exception as e:
             st.error(f"❌ Generation failed: {str(e)}")
+            st.error("Please check if the RAG server is running and properly configured.")
 
 def execute_ensemble_query(api_client, query, config):
     """Execute ensemble LLM query"""
     with st.spinner("Generating ensemble responses..."):
         try:
-            # Mock ensemble response
-            response = {
-                "best_response": f"Ensemble response to: '{query}'. This combines insights from {config['ensemble_size']} different models.",
-                "all_responses": [
-                    {"model": "gpt-4", "response": "GPT-4's perspective on the query...", "quality_score": 0.92},
-                    {"model": "claude-3", "response": "Claude's analysis of the topic...", "quality_score": 0.89},
-                    {"model": "gemini", "response": "Gemini's interpretation...", "quality_score": 0.86}
-                ],
-                "consensus_score": 0.78,
-                "metadata": {
-                    "ensemble_size": config["ensemble_size"],
-                    "consensus_threshold": config["consensus_threshold"],
-                    "processing_time": "12.5 seconds",
-                    "selection_method": "quality_score"
-                }
-            }
+            # Call actual ensemble LLM API
+            response = api_client.generate_ensemble_llm(
+                query=query,
+                ensemble_size=config["ensemble_size"],
+                consensus_threshold=config["consensus_threshold"]
+            )
             
             st.success("✅ Ensemble response generated!")
             
             # Best response
             st.subheader("🏆 Best Response")
-            st.write(response["best_response"])
+            best_response = response.get("best_response", response.get("response", "No response received"))
+            st.write(best_response)
             
-            # All responses comparison
-            st.subheader("📊 Response Comparison")
-            
-            for i, resp in enumerate(response["all_responses"], 1):
-                with st.expander(f"Response {i}: {resp['model']} (Quality: {resp['quality_score']:.2f})"):
-                    st.write(resp["response"])
+            # All responses comparison (if available)
+            all_responses = response.get("all_responses", [])
+            if all_responses:
+                st.subheader("📊 Response Comparison")
+                
+                for i, resp in enumerate(all_responses, 1):
+                    model_name = resp.get("model", f"Model {i}")
+                    quality_score = resp.get("quality_score", 0.0)
+                    response_text = resp.get("response", "No response")
+                    
+                    with st.expander(f"Response {i}: {model_name} (Quality: {quality_score:.2f})"):
+                        st.write(response_text)
             
             # Metadata
             st.subheader("📈 Ensemble Metadata")
             col1, col2 = st.columns(2)
             
+            metadata = response.get("metadata", {})
+            consensus_score = response.get("consensus_score", metadata.get("consensus_score", 0.0))
+            processing_time = metadata.get("processing_time", "unknown")
+            ensemble_size = metadata.get("ensemble_size", config["ensemble_size"])
+            selection_method = metadata.get("selection_method", "quality_score")
+            
             with col1:
-                st.metric("Consensus Score", f"{response['consensus_score']:.2f}")
-                st.metric("Processing Time", response["metadata"]["processing_time"])
+                st.metric("Consensus Score", f"{consensus_score:.2f}")
+                st.metric("Processing Time", processing_time)
             
             with col2:
-                st.metric("Ensemble Size", response["metadata"]["ensemble_size"])
-                st.write(f"**Selection Method:** {response['metadata']['selection_method']}")
+                st.metric("Ensemble Size", ensemble_size)
+                st.write(f"**Selection Method:** {selection_method}")
                 
         except Exception as e:
             st.error(f"❌ Ensemble generation failed: {str(e)}")
+            st.error("Please check if the RAG server is running and properly configured.")
 
 def show_query_history(history_key):
     """Display query history"""

@@ -9,6 +9,7 @@ import asyncio
 
 # from .models import User  # Commented out to avoid import issues
 from .schemas import UserResponse
+from .sqlite_auth import auth_manager
 
 security = HTTPBearer()
 
@@ -36,11 +37,18 @@ async def get_current_user(token: str = Depends(security)) -> MockUser:
     Raises:
         HTTPException: 401 if token is invalid
     """
-    # Simulate async token validation
-    await asyncio.sleep(0.05)
+    # 실제 SQLite 기반 토큰 검증
+    session_data = auth_manager.verify_token(token.credentials)
     
-    # TODO: Implement actual JWT validation and user lookup
-    # For now, return a mock user for development
+    if session_data:
+        return MockUser(
+            id=str(session_data["user_id"]),
+            username=session_data["username"],
+            email=session_data["email"],
+            roles=[session_data["role"]]
+        )
+    
+    # Fallback to mock tokens for development (remove in production)
     if token.credentials == "demo_access_token":
         return MockUser(
             id="demo_user_id",

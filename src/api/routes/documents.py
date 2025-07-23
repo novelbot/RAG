@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 import asyncio
 from pathlib import Path
 
-from ...auth.dependencies import get_current_user, MockUser
+from ...auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 security = HTTPBearer()
@@ -37,7 +37,7 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     metadata: Optional[str] = None,
-    current_user: MockUser = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     Upload and process a document for RAG indexing.
@@ -68,10 +68,11 @@ async def upload_document(
     await asyncio.sleep(0.5)
     
     # Generate document ID
-    document_id = f"doc_{hash(file.filename + current_user.id)}"
+    user_id = str(current_user.get("id", current_user.get("username", "unknown")))
+    document_id = f"doc_{hash(file.filename + user_id)}"
     
     # Add background task for document processing
-    background_tasks.add_task(process_document, document_id, file.filename, current_user.id)
+    background_tasks.add_task(process_document, document_id, file.filename, user_id)
     
     return {
         "document_id": document_id,
@@ -79,7 +80,7 @@ async def upload_document(
         "size": file.size,
         "status": "processing",
         "message": "Document uploaded successfully and is being processed",
-        "user_id": current_user.id
+        "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
     }
 
 
@@ -87,7 +88,7 @@ async def upload_document(
 async def upload_batch_documents(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    current_user: MockUser = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     Upload multiple documents in batch.
@@ -112,9 +113,10 @@ async def upload_batch_documents(
     # Simulate async batch processing
     await asyncio.sleep(0.8)
     
+    user_id = str(current_user.get("id", current_user.get("username", "unknown")))
     results = []
     for file in files:
-        document_id = f"doc_{hash(file.filename + current_user.id)}"
+        document_id = f"doc_{hash(file.filename + user_id)}"
         results.append({
             "document_id": document_id,
             "filename": file.filename,
@@ -122,13 +124,13 @@ async def upload_batch_documents(
         })
         
         # Add background task for each document
-        background_tasks.add_task(process_document, document_id, file.filename, current_user.id)
+        background_tasks.add_task(process_document, document_id, file.filename, user_id)
     
     return {
         "batch_id": f"batch_{hash(str([f.filename for f in files]))}",
         "uploaded_count": len(files),
         "documents": results,
-        "user_id": current_user.id
+        "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
     }
 
 
@@ -137,7 +139,7 @@ async def list_documents(
     page: int = 1,
     limit: int = 20,
     status_filter: Optional[str] = None,
-    current_user: MockUser = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     List user's documents with pagination and filtering.
@@ -182,14 +184,14 @@ async def list_documents(
         "page": page,
         "limit": limit,
         "total_pages": (len(mock_documents) + limit - 1) // limit,
-        "user_id": current_user.id
+        "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
     }
 
 
 @router.get("/{document_id}", response_model=Dict[str, Any])
 async def get_document(
     document_id: str,
-    current_user: MockUser = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     Get detailed information about a specific document.
@@ -222,7 +224,7 @@ async def get_document(
                 "language": "en",
                 "processing_time": 45.2
             },
-            "user_id": current_user.id
+            "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
         }
     
     raise HTTPException(
@@ -234,7 +236,7 @@ async def get_document(
 @router.delete("/{document_id}", response_model=Dict[str, str])
 async def delete_document(
     document_id: str,
-    current_user: MockUser = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ) -> Dict[str, str]:
     """
     Delete a document and its indexed data.
@@ -269,7 +271,7 @@ async def delete_document(
 async def reprocess_document(
     document_id: str,
     background_tasks: BackgroundTasks,
-    current_user: MockUser = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     Reprocess a document with updated settings.
@@ -296,13 +298,14 @@ async def reprocess_document(
         )
     
     # Add background task for reprocessing
-    background_tasks.add_task(process_document, document_id, "reprocess", current_user.id)
+    user_id = str(current_user.get("id", current_user.get("username", "unknown")))
+    background_tasks.add_task(process_document, document_id, "reprocess", user_id)
     
     return {
         "document_id": document_id,
         "status": "reprocessing",
         "message": "Document reprocessing initiated",
-        "user_id": current_user.id
+        "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
     }
 
 

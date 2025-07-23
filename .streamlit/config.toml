@@ -6,12 +6,13 @@ headless = true
 port = 8501
 address = "localhost"
 maxUploadSize = 100
-enableCORS = false
+enableCORS = true
 enableXsrfProtection = true
+# Restrict CORS to local development and production domains
+# corsAllowedOriginsList = ["http://localhost:8501", "http://127.0.0.1:8501"]
 
 [browser]
 gatherUsageStats = false
-showErrorDetails = false
 
 [theme]
 base = "light"
@@ -21,14 +22,10 @@ secondaryBackgroundColor = "#f0f2f6"
 textColor = "#262730"
 
 [client]
-caching = true
-displayEnabled = true
 toolbarMode = "viewer"
 
 [runner]
 magicEnabled = true
-installTracer = false
-fixMatplotlib = true
 
 [logger]
 level = "info"

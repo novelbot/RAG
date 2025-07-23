@@ -26,6 +26,21 @@ class LoginRequest(BaseAPISchema):
     remember_me: bool = Field(False, description="Remember login session")
 
 
+class RegisterRequest(BaseAPISchema):
+    """User registration request schema"""
+    username: str = Field(..., min_length=3, max_length=50, description="Desired username")
+    password: str = Field(..., min_length=6, description="Password (minimum 6 characters)")
+    email: Optional[str] = Field("", max_length=255, description="Email address (optional)")
+    role: Optional[str] = Field("user", description="User role (defaults to 'user')")
+
+
+class RegisterResponse(BaseAPISchema):
+    """User registration response schema"""
+    message: str = Field(..., description="Registration status message")
+    user_id: Optional[str] = Field(None, description="Created user ID if successful")
+    username: str = Field(..., description="Registered username")
+
+
 class TokenResponse(BaseAPISchema):
     """Token response schema"""
     access_token: str = Field(..., description="JWT access token")

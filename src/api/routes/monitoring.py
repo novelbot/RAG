@@ -268,3 +268,71 @@ async def get_service_status() -> Dict[str, Any]:
             "embedding_model": config.embedding.model
         }
     }
+
+
+@router.get("/metrics", response_model=Dict[str, Any])
+async def get_metrics(
+    current_user: MockUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get system metrics including usage statistics, performance data, and resource utilization.
+    
+    Returns:
+        Dict: System metrics and performance data
+    """
+    import psutil
+    from datetime import datetime, timedelta
+    import random
+    
+    # Get system resource metrics
+    cpu_usage = psutil.cpu_percent(interval=1)
+    memory = psutil.virtual_memory()
+    memory_usage = memory.percent
+    
+    disk = psutil.disk_usage('/')
+    storage_usage = (disk.used / disk.total) * 100
+    
+    # Mock database metrics (replace with real queries)
+    total_documents = 1247 + random.randint(-50, 100)  # Simulate document count variation
+    total_queries = 3456 + random.randint(0, 200)
+    active_users = random.randint(15, 35)
+    query_success_rate = 0.94 + random.uniform(-0.05, 0.05)
+    
+    # Mock performance metrics
+    avg_query_time_ms = 850 + random.randint(-200, 300)
+    avg_document_processing_time_ms = 1200 + random.randint(-300, 500)
+    
+    # Mock daily stats (last 7 days)
+    daily_queries = []
+    for i in range(7):
+        date = (datetime.now() - timedelta(days=6-i)).strftime('%Y-%m-%d')
+        count = random.randint(40, 180)
+        daily_queries.append({"date": date, "count": count})
+    
+    return {
+        "resource_usage": {
+            "cpu_usage_percent": round(cpu_usage, 1),
+            "memory_usage_percent": round(memory_usage, 1),
+            "storage_usage_percent": round(storage_usage, 1),
+            "total_memory_gb": round(memory.total / (1024**3), 2),
+            "available_memory_gb": round(memory.available / (1024**3), 2),
+            "total_storage_gb": round(disk.total / (1024**3), 2),
+            "used_storage_gb": round(disk.used / (1024**3), 2)
+        },
+        "application_metrics": {
+            "total_documents": total_documents,
+            "total_queries": total_queries,
+            "active_users": active_users,
+            "query_success_rate": round(query_success_rate, 3),
+            "avg_query_time_ms": avg_query_time_ms,
+            "avg_document_processing_time_ms": avg_document_processing_time_ms
+        },
+        "performance_metrics": {
+            "daily_queries": daily_queries,
+            "peak_concurrent_users": random.randint(20, 40),
+            "cache_hit_rate": random.uniform(0.75, 0.95),
+            "error_rate": random.uniform(0.01, 0.06)
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+        "collection_period": "real-time"
+    }

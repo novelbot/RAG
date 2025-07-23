@@ -20,14 +20,27 @@ def show():
     
     # Get system status and metrics
     try:
-        system_status = api_client.get_system_status()
-        health_check = api_client.get_health_check()
-        metrics = api_client.get_metrics()
+        with st.spinner("Loading dashboard data..."):
+            system_status = api_client.get_system_status()
+            st.write("✅ System status loaded")
+            
+            health_check = api_client.get_health_check()
+            st.write("✅ Health check loaded")
+            
+            metrics = api_client.get_metrics()
+            st.write("✅ Metrics loaded")
+            
     except Exception as e:
         st.error(f"Failed to load dashboard data: {str(e)}")
-        system_status = {"status": "unknown"}
+        st.write(f"Exception type: {type(e).__name__}")
+        st.write(f"Exception details: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        
+        # Fallback data
+        system_status = {"status": "unknown", "services": {}}
         health_check = {"healthy": False}
-        metrics = {}
+        metrics = {"application_metrics": {}, "resource_usage": {}}
     
     # System Status Overview
     col1, col2, col3, col4 = st.columns(4)
@@ -40,8 +53,9 @@ def show():
         )
     
     with col2:
-        # Mock data for demo - replace with real metrics
-        total_documents = metrics.get("total_documents", 1247)
+        # Get data from real metrics
+        app_metrics = metrics.get("application_metrics", {})
+        total_documents = app_metrics.get("total_documents", 1247)
         st.metric(
             label="Total Documents",
             value=f"{total_documents:,}",
@@ -49,7 +63,7 @@ def show():
         )
     
     with col3:
-        total_queries = metrics.get("total_queries", 3456)
+        total_queries = app_metrics.get("total_queries", 3456)
         st.metric(
             label="Total Queries",
             value=f"{total_queries:,}",
@@ -57,7 +71,7 @@ def show():
         )
     
     with col4:
-        active_users = metrics.get("active_users", 23)
+        active_users = app_metrics.get("active_users", 23)
         st.metric(
             label="Active Users",
             value=active_users,
@@ -92,8 +106,9 @@ def show():
     with col2:
         st.subheader("🎯 Query Success Rate")
         
-        # Mock data for success rate
-        success_rate = metrics.get("query_success_rate", 0.94)
+        # Get success rate from real metrics
+        app_metrics = metrics.get("application_metrics", {})
+        success_rate = app_metrics.get("query_success_rate", 0.94)
         
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number+delta",
@@ -124,41 +139,44 @@ def show():
     
     health_col1, health_col2, health_col3 = st.columns(3)
     
+    # Get detailed service status from system_status
+    services = system_status.get("services", {})
+    
     with health_col1:
         st.markdown("**Database Status**")
-        db_status = health_check.get("database", {})
-        db_healthy = db_status.get("healthy", False)
+        db_status = services.get("database", {})
+        db_healthy = db_status.get("status") == "connected"
         status_icon = "✅" if db_healthy else "❌"
-        st.write(f"{status_icon} {db_status.get('status', 'Unknown')}")
+        st.write(f"{status_icon} {db_status.get('status', 'Unknown').title()}")
         
         if db_healthy:
-            st.success(f"Response time: {db_status.get('response_time', 'N/A')}ms")
+            st.success(f"Response time: {db_status.get('response_time_ms', 'N/A')}ms")
         else:
             st.error(f"Error: {db_status.get('error', 'Connection failed')}")
     
     with health_col2:
         st.markdown("**Vector Database**")
-        vector_status = health_check.get("milvus", {})
-        vector_healthy = vector_status.get("healthy", False)
+        vector_status = services.get("vector_database", {})
+        vector_healthy = vector_status.get("status") == "connected"
         status_icon = "✅" if vector_healthy else "❌"
-        st.write(f"{status_icon} {vector_status.get('status', 'Unknown')}")
+        st.write(f"{status_icon} {vector_status.get('status', 'Unknown').title()}")
         
         if vector_healthy:
-            st.success(f"Collections: {vector_status.get('collections', 0)}")
+            st.success(f"Collections: {vector_status.get('collection_count', 0)}")
         else:
             st.error(f"Error: {vector_status.get('error', 'Connection failed')}")
     
     with health_col3:
         st.markdown("**LLM Services**")
-        llm_status = health_check.get("llm", {})
-        llm_healthy = llm_status.get("healthy", False)
+        llm_providers = services.get("llm_providers", {})
+        llm_healthy = any(provider.get("status") == "available" for provider in llm_providers.values())
         status_icon = "✅" if llm_healthy else "❌"
-        st.write(f"{status_icon} {llm_status.get('status', 'Unknown')}")
+        st.write(f"{status_icon} {'Available' if llm_healthy else 'Unavailable'}")
         
         if llm_healthy:
-            st.success(f"Providers: {len(llm_status.get('providers', []))}")
+            st.success(f"Providers: {len([p for p in llm_providers.values() if p.get('status') == 'available'])}")
         else:
-            st.error(f"Error: {llm_status.get('error', 'Service unavailable')}")
+            st.error(f"Error: Service unavailable")
     
     # Recent Activity
     st.markdown("---")
@@ -215,21 +233,23 @@ def show():
     
     resource_col1, resource_col2, resource_col3 = st.columns(3)
     
+    resource_metrics = metrics.get("resource_usage", {})
+    
     with resource_col1:
         st.markdown("**Memory Usage**")
-        memory_usage = metrics.get("memory_usage_percent", 67)
+        memory_usage = resource_metrics.get("memory_usage_percent", 67)
         st.progress(memory_usage / 100)
         st.text(f"{memory_usage}% used")
     
     with resource_col2:
         st.markdown("**CPU Usage**")
-        cpu_usage = metrics.get("cpu_usage_percent", 45)
+        cpu_usage = resource_metrics.get("cpu_usage_percent", 45)
         st.progress(cpu_usage / 100)
         st.text(f"{cpu_usage}% used")
     
     with resource_col3:
         st.markdown("**Storage Usage**")
-        storage_usage = metrics.get("storage_usage_percent", 78)
+        storage_usage = resource_metrics.get("storage_usage_percent", 78)
         st.progress(storage_usage / 100)
         st.text(f"{storage_usage}% used")
     

@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 # Import authentication and page modules
 from webui.auth import AuthManager, require_auth
-from webui.pages import dashboard, documents, query, admin, settings
+from webui.pages import dashboard, documents, query, admin, settings, simple_query
 
 def main():
     """Main application entry point"""
@@ -88,7 +88,7 @@ def main():
     elif current_page == "documents":
         documents.show()
     elif current_page == "query":
-        query.show()
+        simple_query.show()
     elif current_page == "admin":
         if user_info.get("role") == "admin":
             admin.show()

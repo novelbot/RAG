@@ -8,8 +8,8 @@ import yaml
 from typing import Dict, Any, List
 import json
 
-from ..config import config
-from ..api_client import APIClient
+from webui.config import config
+from webui.api_client import get_api_client
 
 def render_config_manager():
     """Render the configuration management interface"""

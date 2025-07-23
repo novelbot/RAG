@@ -131,11 +131,14 @@ def upload_documents(api_client, files, metadata):
             # Read file content
             file_content = file.read()
             
-            # Upload via API (mock implementation for demo)
-            # result = api_client.upload_document(file_content, file.name, file_metadata)
+            # Upload via API
+            result = api_client.upload_document(file_content, file.name, file_metadata)
             
-            # Mock success for demo
-            uploaded_count += 1
+            if result:
+                uploaded_count += 1
+                st.write(f"✅ {file.name}: {result.get('message', 'Uploaded successfully')}")
+            else:
+                failed_uploads.append(f"{file.name}: Upload failed")
             
         except Exception as e:
             failed_uploads.append(f"{file.name}: {str(e)}")
@@ -183,8 +186,32 @@ def show_document_library(api_client):
             ["Upload Date", "File Name", "File Size", "Category"]
         )
     
-    # Get documents (mock data for demo)
-    documents = get_mock_documents()
+    # Get documents from API
+    try:
+        documents_response = api_client.get_documents(limit=100, search=search_query)
+        documents = documents_response.get("documents", [])
+        # Convert API response format to expected format
+        formatted_docs = []
+        for doc in documents:
+            formatted_docs.append({
+                "id": doc["id"],
+                "name": doc["filename"],
+                "description": doc.get("metadata", {}).get("description", "No description"),
+                "category": doc.get("metadata", {}).get("category", "General"),
+                "size": doc["size"],
+                "status": doc["status"].title(),
+                "upload_date": doc["upload_date"][:16] if doc.get("upload_date") else "Unknown",
+                "tags": doc.get("metadata", {}).get("tags", []),
+                "author": doc.get("metadata", {}).get("author", "Unknown"),
+                "department": doc.get("metadata", {}).get("department", "Unknown"),
+                "access_level": doc.get("metadata", {}).get("access_level", "Internal"),
+                "custom_fields": doc.get("metadata", {}).get("custom_fields", {})
+            })
+        documents = formatted_docs
+    except Exception as e:
+        st.warning(f"Could not load documents from API: {str(e)}")
+        # Fallback to mock data
+        documents = get_mock_documents()
     
     # Apply filters
     filtered_docs = documents
@@ -326,9 +353,10 @@ def delete_document(api_client, document):
     """Handle document deletion"""
     if st.button(f"Confirm delete {document['name']}?", key=f"confirm_delete_{document['id']}"):
         try:
-            # api_client.delete_document(document['id'])
-            st.success(f"✅ Deleted {document['name']}")
-            st.rerun()
+            result = api_client.delete_document(document['id'])
+            if result:
+                st.success(f"✅ Deleted {document['name']}")
+                st.rerun()
         except Exception as e:
             st.error(f"❌ Failed to delete document: {str(e)}")
 
