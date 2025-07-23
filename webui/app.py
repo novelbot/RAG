@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 # Import authentication and page modules
 from webui.auth import AuthManager, require_auth
-from webui.pages import dashboard, documents, query, admin, settings, simple_query
+from webui.pages import _dashboard as dashboard, _documents as documents, _query as query, _admin as admin, _settings as settings, _simple_query as simple_query
 
 def main():
     """Main application entry point"""
@@ -25,6 +25,36 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded"
     )
+    
+    # Hide Streamlit's default navigation menu
+    st.markdown("""
+    <style>
+        /* Hide the auto-generated navigation links completely */
+        [data-testid="stSidebar"] nav[data-testid="stSidebarNav"] {
+            display: none !important;
+        }
+        
+        /* Alternative selectors for different Streamlit versions */
+        .stSidebar nav,
+        .stSidebar ul,
+        section[data-testid="stSidebar"] nav,
+        section[data-testid="stSidebar"] ul {
+            display: none !important;
+        }
+        
+        /* Hide any navigation list items */
+        [data-testid="stSidebar"] ul li {
+            display: none !important;
+        }
+        
+        /* Hide specific navigation elements */
+        .css-1544g2n,
+        .css-1d391kg,
+        .stSelectbox[data-baseweb="select"] {
+            display: none !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
     
     # Initialize authentication manager
     auth_manager = AuthManager()
@@ -88,7 +118,7 @@ def main():
     elif current_page == "documents":
         documents.show()
     elif current_page == "query":
-        simple_query.show()
+        query.show()
     elif current_page == "admin":
         if user_info.get("role") == "admin":
             admin.show()
