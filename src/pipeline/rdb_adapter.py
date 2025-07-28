@@ -323,7 +323,13 @@ class RDBDocumentAdapter(LoggerMixin):
         
         # Add table metadata if configured and available
         if self.config.include_table_metadata and extraction_result.metadata:
-            metadata["table_metadata"] = extraction_result.metadata.to_dict()
+            # Convert TableInfo to dict using dataclass fields
+            import dataclasses
+            if dataclasses.is_dataclass(extraction_result.metadata):
+                metadata["table_metadata"] = dataclasses.asdict(extraction_result.metadata)
+            else:
+                # Fallback for non-dataclass objects
+                metadata["table_metadata"] = str(extraction_result.metadata)
         
         return metadata
 

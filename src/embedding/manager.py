@@ -157,8 +157,20 @@ class EmbeddingManager(LoggerMixin):
             # Note: HuggingFace provider not implemented yet, using Ollama as fallback
         }
         
-        for provider_config in self.provider_configs:
-            if not provider_config.enabled:
+        # Handle both dict and list input
+        if isinstance(self.provider_configs, dict):
+            provider_configs = list(self.provider_configs.values())
+        else:
+            provider_configs = self.provider_configs
+        
+        for provider_config in provider_configs:
+            # Handle both EmbeddingConfig objects and dict configs
+            if isinstance(provider_config, str):
+                self.logger.warning(f"Invalid provider config (string): {provider_config}")
+                continue
+                
+            # Check if provider config has enabled attribute, default to True if not
+            if hasattr(provider_config, 'enabled') and not provider_config.enabled:
                 continue
                 
             provider_class = provider_classes.get(provider_config.provider)

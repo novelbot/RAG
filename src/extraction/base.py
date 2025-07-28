@@ -242,7 +242,13 @@ class BaseRDBExtractor(ABC, LoggerMixin):
         
         # Initialize database manager
         self.db_manager = DatabaseManager(config.database_config)
-        self.introspector = DatabaseIntrospector(self.db_manager)
+        
+        # Create a simple pool wrapper for introspector compatibility
+        class PoolWrapper:
+            def __init__(self, engine):
+                self.engine = engine
+        
+        self.introspector = DatabaseIntrospector(PoolWrapper(self.db_manager.engine))
         
         # State tracking
         self.extraction_stats = ExtractionStats()
@@ -258,7 +264,7 @@ class BaseRDBExtractor(ABC, LoggerMixin):
     def engine(self) -> Engine:
         """Get SQLAlchemy engine."""
         if self._engine is None:
-            self._engine = self.db_manager.get_engine()
+            self._engine = self.db_manager.engine
         return self._engine
     
     @property
@@ -389,10 +395,10 @@ class BaseRDBExtractor(ABC, LoggerMixin):
             metadata = TableMetadata(
                 name=table_name,
                 schema=schema,
-                columns=table_info.get("columns", []),
-                primary_keys=table_info.get("primary_keys", []),
-                foreign_keys=table_info.get("foreign_keys", []),
-                indexes=table_info.get("indexes", []),
+                columns=table_info.columns or [],
+                primary_keys=table_info.primary_keys or [],
+                foreign_keys=table_info.foreign_keys or [],
+                indexes=table_info.indexes or [],
                 row_count=self.get_row_count(table_name, schema)
             )
             

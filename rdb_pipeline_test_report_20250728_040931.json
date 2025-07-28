@@ -1,0 +1,80 @@
+{
+  "test_session": {
+    "start_time": "2025-07-28T04:09:26.183776",
+    "end_time": "2025-07-28T04:09:31.260779",
+    "total_time_seconds": 5.077003,
+    "overall_status": false
+  },
+  "summary": {
+    "total_tests": 5,
+    "passed": 3,
+    "failed": 2,
+    "skipped": 0,
+    "warnings": 0,
+    "success_rate": 60.0
+  },
+  "test_results": {
+    "configuration_validation": {
+      "status": "passed",
+      "message": "System validation completed with 10/10 checks passed",
+      "details": {
+        "validation_id": "rdb_validation_20250728_040926",
+        "summary": {
+          "total_checks": 10,
+          "passed": 10,
+          "failed": 0,
+          "critical_errors": 0,
+          "errors": 0,
+          "warnings": 0
+        },
+        "critical_errors": 0,
+        "errors": 0,
+        "warnings": 0
+      },
+      "timestamp": "2025-07-28T04:09:26.892586"
+    },
+    "rdb_extraction": {
+      "status": "failed",
+      "message": "RDB extraction test failed: Unexpected error: Failed to get table metadata: 'TableInfo' object has no attribute 'get'",
+      "error": "Unexpected error: Failed to get table metadata: 'TableInfo' object has no attribute 'get'",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/danielim/CS/2025summer/novelbot_RAG_server/src/extraction/base.py\", line 392, in get_table_metadata\n    columns=table_info.get(\"columns\", []),\n            ^^^^^^^^^^^^^^\nAttributeError: 'TableInfo' object has no attribute 'get'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/Users/danielim/CS/2025summer/novelbot_RAG_server/src/extraction/generic.py\", line 52, in extract_table_data\n    metadata = self.get_table_metadata(table_name, schema)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/danielim/CS/2025summer/novelbot_RAG_server/src/extraction/base.py\", line 403, in get_table_metadata\n    raise ExtractionError(f\"Failed to get table metadata: {e}\")\nsrc.extraction.exceptions.ExtractionError: Failed to get table metadata: 'TableInfo' object has no attribute 'get'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/Users/danielim/CS/2025summer/novelbot_RAG_server/test_rdb_pipeline_integration.py\", line 152, in _test_rdb_extraction\n    result = extractor.extract_table_data(test_table)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/danielim/CS/2025summer/novelbot_RAG_server/src/extraction/generic.py\", line 139, in extract_table_data\n    raise ExtractionError(f\"Unexpected error: {e}\")\nsrc.extraction.exceptions.ExtractionError: Unexpected error: Failed to get table metadata: 'TableInfo' object has no attribute 'get'\n",
+      "timestamp": "2025-07-28T04:09:28.039859"
+    },
+    "document_adapter": {
+      "status": "passed",
+      "message": "Document adapter successful: 0 documents generated",
+      "details": {
+        "database": "default",
+        "document_count": 0,
+        "sample_document": null,
+        "adapter_config": {
+          "content_format": "structured",
+          "include_table_name": true,
+          "include_column_names": true
+        }
+      },
+      "timestamp": "2025-07-28T04:09:29.237186"
+    },
+    "integrated_pipeline": {
+      "status": "failed",
+      "message": "Integrated pipeline test failed: 'RDBPipelineResult' object has no attribute 'overall_status'",
+      "error": "'RDBPipelineResult' object has no attribute 'overall_status'",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/danielim/CS/2025summer/novelbot_RAG_server/test_rdb_pipeline_integration.py\", line 309, in _test_integrated_pipeline\n    \"status\": \"passed\" if result.overall_status or result.successful_documents > 0 else \"failed\",\n                          ^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'RDBPipelineResult' object has no attribute 'overall_status'\n",
+      "timestamp": "2025-07-28T04:09:30.563657"
+    },
+    "cli_commands": {
+      "status": "passed",
+      "message": "CLI validation command functional",
+      "details": {
+        "validation_available": true,
+        "validation_status": true,
+        "validation_checks": 10
+      },
+      "timestamp": "2025-07-28T04:09:31.260727"
+    }
+  },
+  "recommendations": [
+    "Fix failed tests: rdb_extraction, integrated_pipeline",
+    "Check Milvus and embedding service configurations"
+  ]
+}

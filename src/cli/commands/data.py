@@ -28,8 +28,10 @@ def data_group():
 
 
 @data_group.command(name='ingest')
-@click.option('--path', required=True, type=click.Path(exists=True),
+@click.option('--path', type=click.Path(),
               help='Path to data directory or file to ingest.')
+@click.option('--database/--no-database', default=False,
+              help='Use database mode for RDB to vector ingestion.')
 @click.option('--recursive/--no-recursive', default=True,
               help='Recursively process subdirectories.')
 @click.option('--file-types', default='txt,pdf,docx,md',
@@ -38,7 +40,7 @@ def data_group():
               help='Number of files to process in each batch.')
 @click.option('--force/--no-force', default=False,
               help='Force re-ingestion of existing files.')
-def ingest_data(path, recursive, file_types, batch_size, force):
+def ingest_data(path, database, recursive, file_types, batch_size, force):
     """Ingest data from directory or file.
     
     Processes files from the specified path and ingests them into
@@ -47,14 +49,21 @@ def ingest_data(path, recursive, file_types, batch_size, force):
     
     Examples:
         rag-cli data ingest --path ./documents
+        rag-cli data ingest --database --batch-size 50 --force
         rag-cli data ingest --path ./file.pdf --file-types pdf
-        rag-cli data ingest --path ./docs --batch-size 50 --force
     """
-    console.print(f"[yellow]Starting data ingestion from {path}[/yellow]")
-    
-    # Validate path
-    data_path = validate_directory_path(path, must_exist=True)
-    console.print(f"[dim]Validated path: {data_path}[/dim]")
+    # Check mode: database vs file
+    if database:
+        console.print(f"[yellow]Starting RDB to Vector database ingestion[/yellow]")
+        data_path = None
+    elif path:
+        console.print(f"[yellow]Starting data ingestion from {path}[/yellow]")
+        # Validate path
+        data_path = validate_directory_path(path, must_exist=True)
+        console.print(f"[dim]Validated path: {data_path}[/dim]")
+    else:
+        console.print("[red]✗ Either --path or --database must be specified[/red]")
+        return
     
     # Parse file types
     allowed_extensions = [ext.strip().lower() for ext in file_types.split(',')]
@@ -87,14 +96,12 @@ def ingest_data(path, recursive, file_types, batch_size, force):
         # Get application config
         config = get_config()
         
-        # Check if we're processing files or database
-        data_path_obj = Path(data_path)
-        
         with create_progress_bar() as progress:
-            if data_path_obj.is_file() or recursive:
+            if not database:
                 # File-based ingestion
                 task = progress.add_task("Scanning files...", total=None)
                 
+                data_path_obj = Path(data_path)
                 files_to_process = []
                 if data_path_obj.is_file():
                     if data_path_obj.suffix.lower().lstrip('.') in allowed_extensions:
@@ -344,18 +351,91 @@ def data_status():
     from rich.table import Table
     
     # Create status table
-    table = Table(title="Data Ingestion Status")
-    table.add_column("Source", style="cyan")
-    table.add_column("Documents", style="green")
-    table.add_column("Last Sync", style="yellow")
-    table.add_column("Status", style="magenta")
+    status_table = Table(title="Data Ingestion Status")
+    status_table.add_column("Source", style="cyan")
+    status_table.add_column("Documents", style="green")
+    status_table.add_column("Last Sync", style="yellow")
+    status_table.add_column("Status", style="magenta")
     
-    # TODO: Get actual data from database
-    table.add_row("File System", "0", "Never", "Not configured")
-    table.add_row("Database", "0", "Never", "Not configured")
-    table.add_row("Vector DB", "0", "Never", "Empty")
+    # Get actual data from database and vector store
+    try:
+        from src.core.config import get_config
+        from src.milvus.client import MilvusClient
+        from datetime import datetime
+        
+        config = get_config()
+        
+        # Check database status
+        db_status = "Not configured"
+        db_docs = "0"
+        db_last_sync = "Never"
+        
+        if config.rdb_connections:
+            try:
+                # Get first configured database
+                db_name = list(config.rdb_connections.keys())[0]
+                db_config = config.rdb_connections[db_name]
+                
+                from src.database.base import DatabaseManager
+                db_manager = DatabaseManager(db_config)
+                
+                # Get table counts
+                with db_manager.engine.connect() as conn:
+                    from sqlalchemy import text
+                    tables_result = conn.execute(text("SHOW TABLES"))
+                    tables = [row[0] for row in tables_result]
+                    
+                    total_rows = 0
+                    for table in tables:
+                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        table_count = count_result.scalar()
+                        total_rows += table_count
+                    
+                    db_docs = str(total_rows)
+                    db_status = f"{len(tables)} tables available"
+                    db_last_sync = "Available"
+                    
+            except Exception as e:
+                db_status = f"Connection error: {str(e)[:30]}..."
+        
+        # Check Milvus status
+        milvus_status = "Not configured"
+        milvus_docs = "0"
+        milvus_last_sync = "Never"
+        
+        try:
+            milvus_client = MilvusClient(config.milvus)
+            
+            # Check if collection exists
+            collection_name = "documents"
+            if milvus_client.has_collection(collection_name):
+                entity_count = milvus_client.get_entity_count(collection_name)
+                milvus_docs = str(entity_count)
+                milvus_status = "Connected"
+                milvus_last_sync = "Available"
+            else:
+                milvus_status = "Collection not found"
+                
+        except Exception as e:
+            milvus_status = f"Connection error"
+        
+        # File system status (placeholder for now)
+        fs_status = "Not implemented"
+        fs_docs = "0"
+        fs_last_sync = "Never"
+        
+        status_table.add_row("File System", fs_docs, fs_last_sync, fs_status)
+        status_table.add_row("Database", db_docs, db_last_sync, db_status)
+        status_table.add_row("Vector DB", milvus_docs, milvus_last_sync, milvus_status)
+        
+    except Exception as e:
+        # Fallback to placeholder data if there's an error
+        console.print(f"[red]Error getting status: {e}[/red]")
+        status_table.add_row("File System", "0", "Never", "Error")
+        status_table.add_row("Database", "0", "Never", "Error")
+        status_table.add_row("Vector DB", "0", "Never", "Error")
     
-    console.print(table)
+    console.print(status_table)
     
     console.print("\n[dim]Data status check completed[/dim]")
     console.print("[dim]Data status displayed[/dim]")

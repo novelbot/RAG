@@ -55,6 +55,7 @@ class PipelineConfig:
     enable_parallel_processing: bool = True
     max_concurrent_documents: int = 100
     checkpoint_interval: int = 100  # Save state every N documents
+    batch_size: int = 100  # Number of documents to process in each batch
     
     # Stage configurations
     text_cleaning_config: StageConfig = field(default_factory=lambda: create_stage_config())

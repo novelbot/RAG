@@ -363,6 +363,19 @@ class DatabaseIntrospector(LoggerMixin):
             self.logger.error(f"Failed to find tables with column {column_name}: {e}")
             return []
     
+    def get_table_info(self, table_name: str, schema: Optional[str] = None) -> TableInfo:
+        """
+        Get table information (alias for introspect_table for compatibility).
+        
+        Args:
+            table_name: Name of the table
+            schema: Schema name (optional)
+            
+        Returns:
+            TableInfo object with table details
+        """
+        return self.introspect_table(table_name, schema)
+    
     def find_related_tables(self, table_name: str, schema: Optional[str] = None) -> List[Tuple[str, str]]:
         """
         Find tables related to the given table through foreign keys.

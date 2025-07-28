@@ -83,8 +83,8 @@ class GenericRDBExtractor(BaseRDBExtractor):
             
             with self.engine.connect() as conn:
                 while True:
-                    # Build batch query
-                    batch_query = f"{query} OFFSET {offset} LIMIT {self.config.batch_size}"
+                    # Build batch query with MySQL-compatible syntax
+                    batch_query = f"{query} LIMIT {offset}, {self.config.batch_size}"
                     
                     # Execute batch
                     result = conn.execute(text(batch_query))
