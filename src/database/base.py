@@ -73,32 +73,34 @@ class DatabaseManager(LoggerMixin):
     def _build_connection_url(self) -> str:
         """Build database connection URL."""
         if self.config.password:
-            return f"{self.config.driver}://{self.config.user}:{self.config.password}@{self.config.host}:{self.config.port}/{self.config.name}"
+            return f"{self.config.driver}://{self.config.user}:{self.config.password}@{self.config.host}:{self.config.port}/{self.config.database}"
         else:
-            return f"{self.config.driver}://{self.config.user}@{self.config.host}:{self.config.port}/{self.config.name}"
+            return f"{self.config.driver}://{self.config.user}@{self.config.host}:{self.config.port}/{self.config.database}"
     
     def _setup_event_listeners(self) -> None:
         """Setup SQLAlchemy event listeners for connection management."""
         if not self._engine:
             return
             
+        from sqlalchemy import event
+            
         # Listen for connection events
-        @self._engine.event.listens_for(self._engine, "connect")
+        @event.listens_for(self._engine, "connect")
         def connect_handler(dbapi_connection, connection_record):
             """Handle new connections."""
             self.logger.debug("New database connection established")
             
-        @self._engine.event.listens_for(self._engine, "checkout")
+        @event.listens_for(self._engine, "checkout")
         def checkout_handler(dbapi_connection, connection_record, connection_proxy):
             """Handle connection checkout from pool."""
             self.logger.debug("Connection checked out from pool")
             
-        @self._engine.event.listens_for(self._engine, "checkin")
+        @event.listens_for(self._engine, "checkin")
         def checkin_handler(dbapi_connection, connection_record):
             """Handle connection checkin to pool."""
             self.logger.debug("Connection returned to pool")
             
-        @self._engine.event.listens_for(self._engine, "invalidate")
+        @event.listens_for(self._engine, "invalidate")
         def invalidate_handler(dbapi_connection, connection_record, exception):
             """Handle connection invalidation."""
             self.logger.warning(f"Connection invalidated: {exception}")
@@ -250,6 +252,33 @@ class DatabaseManager(LoggerMixin):
             self._engine = None
             self._is_connected = False
             self.logger.info("Database connections closed")
+    
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Perform health check on database connection.
+        
+        Returns:
+            Dict with health check results
+        """
+        try:
+            with self.get_connection() as conn:
+                # Simple query to test connection
+                result = conn.execute(text("SELECT 1"))
+                result.fetchone()
+                
+                return {
+                    "status": "healthy",
+                    "message": "Database connection is healthy",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Health check failed: {e}")
+            return {
+                "status": "unhealthy",
+                "message": f"Database connection failed: {e}",
+                "timestamp": datetime.utcnow().isoformat()
+            }
     
     def __enter__(self):
         """Context manager entry."""

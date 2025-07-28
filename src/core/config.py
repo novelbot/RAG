@@ -30,27 +30,18 @@ class DatabaseConfig(BaseModel):
     host: str = "localhost"
     port: int = 3306
     database: str = "novelbot"  # renamed from name to database for consistency
-    username: str = "root"      # renamed from user to username for consistency
+    user: str = "root"          # Keep as user for consistency with existing code
     password: str = ""
+    driver: str = "mysql+pymysql"  # Add driver field
     pool_size: int = 5
     max_overflow: int = 10
     pool_timeout: int = 30
     
     # Backward compatibility properties
     @property
-    def driver(self) -> str:
-        """Backward compatibility for driver attribute"""
-        return self.database_type.value
-    
-    @property
     def name(self) -> str:
         """Backward compatibility for name attribute"""
         return self.database
-    
-    @property
-    def user(self) -> str:
-        """Backward compatibility for user attribute"""
-        return self.username
 
 
 class MilvusConfig(BaseModel):
@@ -202,6 +193,7 @@ class ConfigManager:
             self._config = AppConfig()
             self._override_from_env()
             self._setup_embedding_providers()
+            self._setup_rdb_connections()
         return self._config
     
     def _override_from_env(self) -> None:
@@ -217,7 +209,7 @@ class ConfigManager:
         if os.getenv('DB_NAME'):
             self._config.database.database = os.getenv('DB_NAME', self._config.database.database)
         if os.getenv('DB_USER'):
-            self._config.database.username = os.getenv('DB_USER', self._config.database.username)
+            self._config.database.user = os.getenv('DB_USER', self._config.database.user)
         if os.getenv('DB_PASSWORD'):
             self._config.database.password = os.getenv('DB_PASSWORD', self._config.database.password)
         
@@ -295,6 +287,24 @@ class ConfigManager:
                     dimension=int(os.getenv(f"EMBEDDING_PROVIDER_{provider.upper()}_DIMENSION", str(self._config.embedding.dimension)))
                 )
                 self._config.embedding_providers[provider] = provider_config
+    
+    def _setup_rdb_connections(self) -> None:
+        """Setup RDB connections from environment variables."""
+        if not self._config:
+            return
+        
+        # Set up default RDB connection if database environment variables are present
+        if os.getenv('DB_HOST'):
+            self._config.rdb_connections = {
+                "default": DatabaseConfig(
+                    host=os.getenv('DB_HOST', 'localhost'),
+                    port=int(os.getenv('DB_PORT', 3306)),
+                    database=os.getenv('DB_NAME', 'ragdb'),
+                    user=os.getenv('DB_USER', 'mysql'),
+                    password=os.getenv('DB_PASSWORD', ''),
+                    driver=os.getenv('DB_DRIVER', 'mysql+pymysql')
+                )
+            }
     
     def get_config(self) -> AppConfig:
         """Get current configuration"""
