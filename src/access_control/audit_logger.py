@@ -149,7 +149,7 @@ class AuditLog(Base, TimestampMixin):
     request_id = Column(String(255))
     
     # Metadata
-    metadata = Column(Text)  # JSON field for additional data
+    audit_metadata = Column(Text)  # JSON field for additional data
     
     # Integrity and security
     checksum = Column(String(64), nullable=False)  # SHA-256 hash
@@ -195,7 +195,7 @@ class AuditLog(Base, TimestampMixin):
             "ip_address": self.ip_address,
             "user_agent": self.user_agent,
             "request_id": self.request_id,
-            "metadata": json.loads(self.metadata) if self.metadata else {},
+            "metadata": json.loads(self.audit_metadata) if self.audit_metadata else {},
             "checksum": self.checksum,
             "previous_log_id": self.previous_log_id,
             "chain_hash": self.chain_hash,

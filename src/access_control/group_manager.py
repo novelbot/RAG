@@ -108,7 +108,7 @@ class Group(Base, TimestampMixin):
     max_members = Column(Integer)
     
     # Metadata
-    metadata = Column(Text)  # JSON field for additional metadata
+    group_metadata = Column(Text)  # JSON field for additional metadata
     
     # Group ownership
     owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
@@ -136,7 +136,7 @@ class Group(Base, TimestampMixin):
             "owner_id": self.owner_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "metadata": json.loads(self.metadata) if self.metadata else {}
+            "metadata": json.loads(self.group_metadata) if self.group_metadata else {}
         }
 
 

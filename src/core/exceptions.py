@@ -5,6 +5,15 @@ Custom exceptions for the RAG server application.
 from typing import Optional, Any
 
 
+class BaseCustomException(Exception):
+    """Base custom exception class"""
+    
+    def __init__(self, message: str, details: Optional[Any] = None):
+        self.message = message
+        self.details = details
+        super().__init__(self.message)
+
+
 class RAGException(Exception):
     """Base exception for RAG server errors"""
     
@@ -92,6 +101,13 @@ class RateLimitError(RAGException):
 
 class ProcessingError(RAGException):
     """Data processing errors"""
+    
+    def __init__(self, message: str, details: Optional[Any] = None):
+        super().__init__(message, 500, details)
+
+
+class PipelineError(RAGException):
+    """Pipeline processing errors"""
     
     def __init__(self, message: str, details: Optional[Any] = None):
         super().__init__(message, 500, details)

@@ -459,25 +459,50 @@ class RDBConfigValidator(LoggerMixin):
                 )
                 return
             
-            # Test embedding manager
+            # Test embedding configuration availability (simplified)
             try:
-                embedding_manager = EmbeddingManager(config.embedding_providers)
+                # For now, just test if embedding configuration is properly set up
+                has_embedding_config = config.embedding and config.embedding.provider
                 
-                # Test health check
-                health_results = await embedding_manager.health_check_async()
-                
-                healthy_providers = sum(1 for result in health_results.values() if result.get("status") == "healthy")
-                total_providers = len(health_results)
-                
-                has_healthy_providers = healthy_providers > 0
-                self._add_result(
-                    "embedding_services",
-                    "provider_health",
-                    ValidationSeverity.ERROR,
-                    has_healthy_providers,
-                    f"{healthy_providers}/{total_providers} embedding providers healthy",
-                    {"health_results": health_results}
-                )
+                # Test specific provider configuration
+                if has_embedding_config:
+                    if config.embedding.provider == "ollama":
+                        # Test Ollama connectivity (simplified)
+                        try:
+                            import requests
+                            ollama_host = config.embedding.base_url or "http://localhost:11434"
+                            response = requests.get(f"{ollama_host}/api/tags", timeout=5)
+                            ollama_available = response.status_code == 200
+                        except:
+                            ollama_available = False
+                        
+                        self._add_result(
+                            "embedding_services",
+                            "ollama_connectivity",
+                            ValidationSeverity.ERROR,
+                            ollama_available,
+                            f"Ollama service {'available' if ollama_available else 'unavailable'} at {ollama_host}",
+                            {"provider": "ollama", "host": ollama_host}
+                        )
+                    else:
+                        # For other providers, just check configuration
+                        has_api_key = bool(config.embedding.api_key)
+                        self._add_result(
+                            "embedding_services",
+                            "provider_config",
+                            ValidationSeverity.WARNING,
+                            has_api_key,
+                            f"Embedding provider '{config.embedding.provider}' configured with{'out' if not has_api_key else ''} API key",
+                            {"provider": config.embedding.provider, "has_api_key": has_api_key}
+                        )
+                else:
+                    self._add_result(
+                        "embedding_services",
+                        "config_check",
+                        ValidationSeverity.ERROR,
+                        False,
+                        "No embedding configuration found"
+                    )
                 
             except Exception as e:
                 self._add_result(

@@ -574,7 +574,13 @@ class MetadataFilter(LoggerMixin):
             if isinstance(value, str):
                 value = f'"{value}"'
             elif isinstance(value, list):
-                value = f"[{', '.join(f'"{v}"' if isinstance(v, str) else str(v) for v in value)}]"
+                formatted_values = []
+                for v in value:
+                    if isinstance(v, str):
+                        formatted_values.append(f'"{v}"')
+                    else:
+                        formatted_values.append(str(v))
+                value = f"[{', '.join(formatted_values)}]"
             
             # Convert operations
             if operation == FilterOperation.EQUALS:

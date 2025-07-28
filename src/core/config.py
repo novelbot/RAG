@@ -4,6 +4,7 @@ Supports loading from YAML/JSON files and environment variables.
 """
 
 import os
+from enum import Enum
 from typing import Dict, Optional
 from dataclasses import field
 from dotenv import load_dotenv
@@ -13,25 +14,43 @@ from pydantic import BaseModel, field_validator
 load_dotenv()
 
 
+class DatabaseType(Enum):
+    """Supported database types"""
+    MYSQL = "mysql"
+    POSTGRESQL = "postgresql"
+    ORACLE = "oracle"
+    MSSQL = "mssql"
+    MARIADB = "mariadb"
+    SQLITE = "sqlite"
+
+
 class DatabaseConfig(BaseModel):
     """Database configuration settings"""
+    database_type: DatabaseType = DatabaseType.MYSQL
     host: str = "localhost"
     port: int = 3306
-    name: str = "novelbot"
-    user: str = "root"
+    database: str = "novelbot"  # renamed from name to database for consistency
+    username: str = "root"      # renamed from user to username for consistency
     password: str = ""
-    driver: str = "mysql"
     pool_size: int = 5
     max_overflow: int = 10
     pool_timeout: int = 30
     
-    @field_validator('driver')
-    @classmethod
-    def validate_driver(cls, v):
-        allowed_drivers = ['postgresql', 'mysql', 'oracle', 'mssql', 'mariadb']
-        if v not in allowed_drivers:
-            raise ValueError(f"Driver must be one of: {allowed_drivers}")
-        return v
+    # Backward compatibility properties
+    @property
+    def driver(self) -> str:
+        """Backward compatibility for driver attribute"""
+        return self.database_type.value
+    
+    @property
+    def name(self) -> str:
+        """Backward compatibility for name attribute"""
+        return self.database
+    
+    @property
+    def user(self) -> str:
+        """Backward compatibility for user attribute"""
+        return self.username
 
 
 class MilvusConfig(BaseModel):
@@ -163,6 +182,12 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     data_source: DataSourceConfig = DataSourceConfig()
     rag: RAGConfig = RAGConfig()
+    
+    # RDB connections for multiple databases
+    rdb_connections: Dict[str, DatabaseConfig] = {}
+    
+    # Embedding providers configuration  
+    embedding_providers: Dict[str, EmbeddingConfig] = {}
 
 
 class ConfigManager:
@@ -176,6 +201,7 @@ class ConfigManager:
         if self._config is None:
             self._config = AppConfig()
             self._override_from_env()
+            self._setup_embedding_providers()
         return self._config
     
     def _override_from_env(self) -> None:
@@ -189,9 +215,9 @@ class ConfigManager:
         if os.getenv('DB_PORT'):
             self._config.database.port = int(os.getenv('DB_PORT', str(self._config.database.port)))
         if os.getenv('DB_NAME'):
-            self._config.database.name = os.getenv('DB_NAME', self._config.database.name)
+            self._config.database.database = os.getenv('DB_NAME', self._config.database.database)
         if os.getenv('DB_USER'):
-            self._config.database.user = os.getenv('DB_USER', self._config.database.user)
+            self._config.database.username = os.getenv('DB_USER', self._config.database.username)
         if os.getenv('DB_PASSWORD'):
             self._config.database.password = os.getenv('DB_PASSWORD', self._config.database.password)
         
@@ -243,6 +269,32 @@ class ConfigManager:
         if os.getenv('DEBUG'):
             debug_value = os.getenv('DEBUG', 'false')
             self._config.debug = debug_value.lower() == 'true'
+    
+    def _setup_embedding_providers(self) -> None:
+        """Setup embedding providers from main embedding config."""
+        if not self._config:
+            return
+        
+        # Set up default embedding provider from main config
+        if self._config.embedding:
+            self._config.embedding_providers = {
+                "default": self._config.embedding
+            }
+        
+        # Add additional providers if configured via environment
+        # This allows for multiple embedding providers to be configured
+        # Example: EMBEDDING_PROVIDER_OPENAI_API_KEY, EMBEDDING_PROVIDER_GOOGLE_API_KEY
+        provider_names = ["openai", "google", "ollama", "huggingface"]
+        for provider in provider_names:
+            env_key = f"EMBEDDING_PROVIDER_{provider.upper()}_API_KEY"
+            if os.getenv(env_key):
+                provider_config = EmbeddingConfig(
+                    provider=provider,
+                    api_key=os.getenv(env_key),
+                    model=os.getenv(f"EMBEDDING_PROVIDER_{provider.upper()}_MODEL", self._config.embedding.model),
+                    dimension=int(os.getenv(f"EMBEDDING_PROVIDER_{provider.upper()}_DIMENSION", str(self._config.embedding.dimension)))
+                )
+                self._config.embedding_providers[provider] = provider_config
     
     def get_config(self) -> AppConfig:
         """Get current configuration"""

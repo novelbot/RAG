@@ -70,19 +70,8 @@ class MilvusClient(LoggerMixin):
     def _setup_connection(self) -> None:
         """Setup Milvus connection configuration."""
         try:
-            # Add connection configuration
-            connection_config = {
-                "host": self._connection_params["host"],
-                "port": self._connection_params["port"],
-                "user": self._connection_params["user"],
-                "password": self._connection_params["password"],
-                "secure": self._connection_params["secure"],
-                "db_name": self._connection_params["db_name"]
-            }
-            
-            connections.add_connection(**{self.alias: connection_config})
-            
-            self.logger.info(f"Milvus connection configured: {self.alias}")
+            # Store connection parameters for later use
+            self.logger.info(f"Milvus connection parameters configured: {self.alias}")
             
         except Exception as e:
             self.logger.error(f"Failed to setup Milvus connection: {e}")
@@ -106,15 +95,14 @@ class MilvusClient(LoggerMixin):
             
             for attempt in range(self._max_retries):
                 try:
-                    # Establish connection
+                    # Establish connection using recommended approach from Context7
                     connections.connect(
                         alias=self.alias,
                         host=self._connection_params["host"],
-                        port=self._connection_params["port"],
+                        port=str(self._connection_params["port"]),
                         user=self._connection_params["user"],
                         password=self._connection_params["password"],
-                        secure=self._connection_params["secure"],
-                        db_name=self._connection_params["db_name"]
+                        secure=self._connection_params["secure"]
                     )
                     
                     # Verify connection with a simple utility call
@@ -179,8 +167,9 @@ class MilvusClient(LoggerMixin):
         start_time = time.time()
         
         try:
+            # Try to connect first if not connected
             if not self.is_connected():
-                raise HealthCheckError("Not connected to Milvus server")
+                self.connect()
             
             # Perform ping by listing collections
             collections = utility.list_collections(using=self.alias)

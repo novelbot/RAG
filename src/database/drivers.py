@@ -10,7 +10,7 @@ from sqlalchemy.engine.url import URL, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from loguru import logger
 
-from src.core.config import DatabaseConfig
+from src.core.config import DatabaseConfig, DatabaseType
 from src.core.exceptions import DatabaseError, ConfigurationError
 from src.core.logging import LoggerMixin
 

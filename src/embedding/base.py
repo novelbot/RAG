@@ -19,6 +19,7 @@ class EmbeddingProvider(Enum):
     OPENAI = "openai"
     GOOGLE = "google"
     OLLAMA = "ollama"
+    HUGGINGFACE = "huggingface"
 
 
 @dataclass

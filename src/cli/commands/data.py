@@ -73,7 +73,7 @@ def ingest_data(path, recursive, file_types, batch_size, force):
         from src.core.app import create_app
         from src.extraction.factory import RDBExtractorFactory
         from src.extraction.base import ExtractionConfig, ExtractionMode, DataFormat
-        from src.core.config import DatabaseType, DatabaseConfig, get_config
+        from src.core.config import DatabaseConfig, DatabaseType, get_config
         from src.pipeline.pipeline import VectorPipeline, PipelineConfig, Document
         from src.milvus.client import MilvusClient
         from src.embedding.manager import EmbeddingManager

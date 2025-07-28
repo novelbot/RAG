@@ -2,9 +2,8 @@
 Factory for creating RDB extractors for different database types.
 """
 
-from typing import Dict, Type, Optional
-from src.core.config import DatabaseConfig
-from src.database.drivers import DatabaseType
+from typing import Dict, Type, Optional, List
+from src.core.config import DatabaseConfig, DatabaseType
 from .base import BaseRDBExtractor, ExtractionConfig
 from .exceptions import ExtractionConfigurationError
 

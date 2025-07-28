@@ -154,6 +154,7 @@ class EmbeddingManager(LoggerMixin):
             EmbeddingProvider.OPENAI: OpenAIEmbeddingProvider,
             EmbeddingProvider.GOOGLE: GoogleEmbeddingProvider,
             EmbeddingProvider.OLLAMA: OllamaEmbeddingProvider,
+            # Note: HuggingFace provider not implemented yet, using Ollama as fallback
         }
         
         for provider_config in self.provider_configs:

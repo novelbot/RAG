@@ -57,7 +57,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
     
     def __init__(self, config: EmbeddingConfig):
         """Initialize Ollama embedding provider."""
-        if config.provider != EmbeddingProvider.OLLAMA:
+        if config.provider != "ollama" and config.provider != EmbeddingProvider.OLLAMA:
             raise ConfigurationError(f"Invalid provider: {config.provider}")
         
         super().__init__(config)
