@@ -229,6 +229,20 @@ class BaseEmbeddingProvider(ABC, LoggerMixin):
         """
         pass
     
+    @abstractmethod
+    def estimate_cost(self, num_tokens: int, model: str) -> float:
+        """
+        Estimate cost for embedding generation.
+        
+        Args:
+            num_tokens: Number of tokens to estimate cost for
+            model: Model name
+            
+        Returns:
+            Estimated cost in dollars
+        """
+        pass
+    
     async def health_check_async(self) -> Dict[str, Any]:
         """
         Perform health check asynchronously.

@@ -423,7 +423,7 @@ class EmbeddingManager(LoggerMixin):
     def _round_robin_select(self, providers: List[EmbeddingProvider]) -> EmbeddingProvider:
         """Round-robin provider selection."""
         if not providers:
-            return None
+            raise ValueError("No providers available for selection")
         
         provider = providers[self.round_robin_index % len(providers)]
         self.round_robin_index += 1

@@ -3,10 +3,9 @@ Google Embedding Provider implementation.
 """
 
 import time
-import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, cast
 try:
-    from google.genai import Client, types
+    from google.genai import Client, types  # type: ignore[import-untyped]
 except ImportError:
     Client = None
     types = None
@@ -15,7 +14,7 @@ from src.embedding.base import (
     BaseEmbeddingProvider, EmbeddingConfig, EmbeddingRequest, 
     EmbeddingResponse, EmbeddingUsage, EmbeddingDimension, EmbeddingProvider
 )
-from src.core.exceptions import EmbeddingError, RateLimitError, ConfigurationError
+from src.core.exceptions import EmbeddingError, ConfigurationError
 
 
 class GoogleEmbeddingProvider(BaseEmbeddingProvider):
@@ -63,6 +62,11 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
     
     def _initialize_client(self) -> None:
         """Initialize Google GenAI client."""
+        if Client is None:
+            raise ConfigurationError(
+                "Google GenAI library not available. Install with: pip install google-genai"
+            )
+        
         try:
             client_kwargs = {
                 "api_key": self.config.api_key,
@@ -166,7 +170,7 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
             config_params["auto_truncate"] = True
         
         # Add configuration if any parameters are set
-        if config_params:
+        if config_params and types is not None:
             params["config"] = types.EmbedContentConfig(**config_params)
         
         return params
@@ -185,7 +189,8 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
     async def _process_batched_request_async(self, request: EmbeddingRequest, params: Dict[str, Any]) -> EmbeddingResponse:
         """Process large requests in batches asynchronously."""
         batch_size = request.batch_size or self.config.batch_size
-        batches = self._batch_texts(request.input, batch_size)
+        # request.input is guaranteed to be List[str] after __post_init__
+        batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
         all_embeddings = []
         total_usage = EmbeddingUsage()
@@ -211,7 +216,8 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
     def _process_batched_request(self, request: EmbeddingRequest, params: Dict[str, Any]) -> EmbeddingResponse:
         """Process large requests in batches synchronously."""
         batch_size = request.batch_size or self.config.batch_size
-        batches = self._batch_texts(request.input, batch_size)
+        # request.input is guaranteed to be List[str] after __post_init__
+        batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
         all_embeddings = []
         total_usage = EmbeddingUsage()
@@ -310,6 +316,11 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
     def validate_config(self) -> bool:
         """Validate configuration."""
         try:
+            # Check if Google GenAI library is available
+            if Client is None:
+                self.logger.error("Google GenAI library not available. Install with: pip install google-genai")
+                return False
+            
             # Check API key
             if not self.config.api_key:
                 self.logger.error("Google API key is required")
@@ -328,7 +339,7 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
                     return False
             
             # Test client initialization
-            test_client = Client(
+            _test_client = Client(
                 api_key=self.config.api_key,
                 http_options={"timeout": 5.0}
             )
@@ -345,7 +356,7 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
         error_msg = str(error)
         
         if "quota" in error_msg.lower() or "limit" in error_msg.lower():
-            return RateLimitError(f"Google rate limit exceeded: {error_msg}")
+            return EmbeddingError(f"Google rate limit exceeded: {error_msg}")
         elif "invalid" in error_msg.lower():
             return EmbeddingError(f"Google invalid request: {error_msg}")
         elif "permission" in error_msg.lower() or "auth" in error_msg.lower():

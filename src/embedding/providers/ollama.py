@@ -4,7 +4,7 @@ Ollama Embedding Provider implementation.
 
 import time
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 import ollama
 from ollama import Client, AsyncClient
 
@@ -148,7 +148,8 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
     async def _process_batched_request_async(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """Process large requests in batches asynchronously."""
         batch_size = request.batch_size or self.config.batch_size
-        batches = self._batch_texts(request.input, batch_size)
+        # request.input is guaranteed to be List[str] after __post_init__
+        batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
         all_embeddings = []
         total_usage = EmbeddingUsage()
@@ -175,7 +176,8 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
     def _process_batched_request(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """Process large requests in batches synchronously."""
         batch_size = request.batch_size or self.config.batch_size
-        batches = self._batch_texts(request.input, batch_size)
+        # request.input is guaranteed to be List[str] after __post_init__
+        batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
         all_embeddings = []
         total_usage = EmbeddingUsage()
@@ -199,10 +201,14 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             dimensions=len(all_embeddings[0]) if all_embeddings else 0
         )
     
-    def _process_response(self, response: Dict[str, Any], model: str, num_inputs: int) -> EmbeddingResponse:
+    def _process_response(self, response: Any, model: str, num_inputs: int) -> EmbeddingResponse:
         """Process Ollama API response."""
         # Extract embeddings from response
-        embeddings = response.get("embeddings", [])
+        # Handle both single embedding and multiple embeddings cases
+        embeddings = response.get("embeddings", response.get("embedding", []))
+        if isinstance(embeddings, list) and len(embeddings) > 0 and not isinstance(embeddings[0], list):
+            # If we got a single embedding (list of floats), wrap it in a list
+            embeddings = [embeddings]
         
         if not embeddings:
             raise EmbeddingError("No embeddings returned from Ollama")
@@ -212,7 +218,8 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             embeddings = self._normalize_embeddings(embeddings)
         
         # Estimate token usage (Ollama doesn't provide exact token counts)
-        estimated_tokens = sum(len(text.split()) * 1.3 for text in embeddings) if isinstance(embeddings[0], str) else num_inputs * 50
+        # Since embeddings are vectors, we estimate based on number of inputs
+        estimated_tokens = num_inputs * 50
         
         usage = EmbeddingUsage(
             prompt_tokens=int(estimated_tokens),
@@ -369,7 +376,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         """Get detailed information about a specific model."""
         try:
             response = self._client.show(model)
-            return response
+            return dict(response)
             
         except Exception as e:
             self.logger.error(f"Failed to get model info for {model}: {e}")

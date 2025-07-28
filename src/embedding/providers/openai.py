@@ -4,7 +4,7 @@ OpenAI Embedding Provider implementation.
 
 import time
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 from openai import OpenAI, AsyncOpenAI
 from openai.types import CreateEmbeddingResponse
 
@@ -12,7 +12,7 @@ from src.embedding.base import (
     BaseEmbeddingProvider, EmbeddingConfig, EmbeddingRequest, 
     EmbeddingResponse, EmbeddingUsage, EmbeddingDimension, EmbeddingProvider
 )
-from src.core.exceptions import EmbeddingError, RateLimitError, ConfigurationError
+from src.core.exceptions import EmbeddingError, ConfigurationError
 
 
 class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
@@ -164,7 +164,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
     async def _process_batched_request_async(self, request: EmbeddingRequest, params: Dict[str, Any]) -> EmbeddingResponse:
         """Process large requests in batches asynchronously."""
         batch_size = request.batch_size or self.config.batch_size
-        batches = self._batch_texts(request.input, batch_size)
+        # request.input is guaranteed to be List[str] after __post_init__
+        batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
         all_embeddings = []
         total_usage = EmbeddingUsage()
@@ -194,7 +195,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
     def _process_batched_request(self, request: EmbeddingRequest, params: Dict[str, Any]) -> EmbeddingResponse:
         """Process large requests in batches synchronously."""
         batch_size = request.batch_size or self.config.batch_size
-        batches = self._batch_texts(request.input, batch_size)
+        # request.input is guaranteed to be List[str] after __post_init__
+        batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
         all_embeddings = []
         total_usage = EmbeddingUsage()
@@ -313,7 +315,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         error_msg = str(error)
         
         if "rate_limit" in error_msg.lower():
-            return RateLimitError(f"OpenAI rate limit exceeded: {error_msg}")
+            return EmbeddingError(f"OpenAI rate limit exceeded: {error_msg}")
         elif "invalid_request_error" in error_msg.lower():
             return EmbeddingError(f"OpenAI invalid request: {error_msg}")
         elif "authentication_error" in error_msg.lower():
