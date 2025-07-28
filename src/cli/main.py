@@ -155,7 +155,7 @@ def status(ctx):
     table.add_row("Database", config.database.driver, f"{config.database.host}:{config.database.port}")
     table.add_row("Milvus", "Configured", f"{config.milvus.host}:{config.milvus.port}")
     table.add_row("LLM Provider", config.llm.provider, config.llm.model)
-    table.add_row("Embedding", config.embedding.provider, config.embedding.model)
+    table.add_row("Embedding", config.embedding.provider.value, config.embedding.model)
     
     console.print(table)
     ctx.log("Status check completed", "verbose")
@@ -183,7 +183,7 @@ def show_config(ctx, show_sensitive):
     config_text += f"Database: {config.database.driver}://{config.database.host}:{config.database.port}/{config.database.name}\n"
     config_text += f"Milvus: {config.milvus.host}:{config.milvus.port}\n"
     config_text += f"LLM: {config.llm.provider} ({config.llm.model})\n"
-    config_text += f"Embedding: {config.embedding.provider} ({config.embedding.model})\n"
+    config_text += f"Embedding: {config.embedding.provider.value} ({config.embedding.model})\n"
     config_text += f"API: {config.api.host}:{config.api.port}"
     
     if show_sensitive:
