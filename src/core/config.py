@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, field_validator
 
 from src.embedding.types import EmbeddingProvider, EmbeddingConfig
+from src.rag.access_control_filter import AccessControlConfig
 
 # Load environment variables from .env file
 load_dotenv()
@@ -163,6 +164,7 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     data_source: DataSourceConfig = DataSourceConfig()
     rag: RAGConfig = RAGConfig()
+    access_control: AccessControlConfig = AccessControlConfig()
     
     # RDB connections for multiple databases
     rdb_connections: Dict[str, DatabaseConfig] = {}

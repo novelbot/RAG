@@ -325,6 +325,57 @@ class MilvusClient(LoggerMixin):
         except Exception as e:
             self.logger.error(f"Failed to drop collection {collection_name}: {e}")
             raise MilvusError(f"Drop collection failed: {e}")
+
+    def get_collection(self, collection_name: str) -> "Collection":
+        """
+        Get an existing collection by name.
+        
+        Args:
+            collection_name: Name of the collection to get
+            
+        Returns:
+            Collection: PyMilvus Collection object
+        """
+        try:
+            if not self.is_connected():
+                raise MilvusError("Not connected to Milvus server")
+            
+            if not utility.has_collection(collection_name, using=self.alias):
+                raise MilvusError(f"Collection {collection_name} does not exist")
+            
+            from pymilvus import Collection
+            collection = Collection(collection_name, using=self.alias)
+            self.logger.info(f"Retrieved collection: {collection_name}")
+            return collection
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get collection {collection_name}: {e}")
+            raise MilvusError(f"Get collection failed: {e}")
+
+    def create_collection(self, name: str, schema: "CollectionSchema", **kwargs) -> "Collection":
+        """
+        Create a new collection with the given schema.
+        
+        Args:
+            name: Name of the collection
+            schema: Collection schema
+            **kwargs: Additional arguments
+            
+        Returns:
+            Collection: PyMilvus Collection object
+        """
+        try:
+            if not self.is_connected():
+                raise MilvusError("Not connected to Milvus server")
+            
+            from pymilvus import Collection
+            collection = Collection(name, schema, using=self.alias, **kwargs)
+            self.logger.info(f"Created collection: {name}")
+            return collection
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create collection {name}: {e}")
+            raise MilvusError(f"Create collection failed: {e}")
     
     def create_collection_if_not_exists(
         self, 

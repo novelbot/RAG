@@ -7,7 +7,7 @@ including schema definition, indexing, and data operations.
 
 import time
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from dataclasses import dataclass
 
 from src.core.logging import LoggerMixin
@@ -26,7 +26,7 @@ class EpisodeVectorStoreConfig:
     vector_dimension: int = 1536  # OpenAI ada-002 dimension
     index_type: IndexType = IndexType.IVF_FLAT
     metric_type: MetricType = MetricType.L2
-    index_params: Dict[str, Any] = None
+    index_params: Optional[Dict[str, Any]] = None
     enable_dynamic_schema: bool = False
     shard_num: int = 2
     replica_num: int = 1
@@ -63,7 +63,8 @@ class EpisodeVectorStore(LoggerMixin):
         """
         self.milvus_client = milvus_client
         self.config = config or EpisodeVectorStoreConfig()
-        self.collection: Optional[MilvusCollection] = None
+        from pymilvus import Collection
+        self.collection: Optional[Collection] = None
         
         # Storage statistics
         self.stats = EpisodeProcessingStats()
@@ -177,8 +178,7 @@ class EpisodeVectorStore(LoggerMixin):
             # Create collection
             self.collection = self.milvus_client.create_collection(
                 name=self.config.collection_name,
-                schema=schema,
-                shards_num=self.config.shard_num
+                schema=schema
             )
             
             self.logger.info(f"Created collection '{self.config.collection_name}' with {len(fields)} fields")
@@ -252,8 +252,13 @@ class EpisodeVectorStore(LoggerMixin):
             # Prepare data for insertion
             data = self._prepare_insertion_data(episodes)
             
-            # Insert data
-            insert_result = self.collection.insert(data)
+            # Insert data - convert dict to list format for Milvus
+            data_list = [data[field] for field in [
+                "episode_id", "content_embedding", "novel_id", "episode_number", 
+                "episode_title", "content", "content_length", "publication_timestamp", 
+                "publication_date", "created_at", "updated_at"
+            ]]
+            insert_result = self.collection.insert(data_list)
             
             # Update statistics
             inserted_count = len(episodes)
@@ -266,7 +271,7 @@ class EpisodeVectorStore(LoggerMixin):
                 "inserted_count": inserted_count,
                 "insert_ids": insert_result.primary_keys if hasattr(insert_result, 'primary_keys') else [],
                 "storage_time": time.time() - start_time,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
@@ -337,7 +342,7 @@ class EpisodeVectorStore(LoggerMixin):
             return {
                 "deleted_count": len(episode_ids),
                 "delete_expr": delete_expr,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
@@ -401,7 +406,7 @@ class EpisodeVectorStore(LoggerMixin):
     
     def _prepare_insertion_data(self, episodes: List[EpisodeData]) -> Dict[str, List[Any]]:
         """Prepare episode data for Milvus insertion."""
-        current_timestamp = int(datetime.utcnow().timestamp())
+        current_timestamp = int(datetime.now(timezone.utc).timestamp())
         
         data = {
             "episode_id": [],
@@ -464,7 +469,7 @@ class EpisodeVectorStore(LoggerMixin):
                 "status": "healthy",
                 "collection_name": self.config.collection_name,
                 "num_entities": num_entities,
-                "is_loaded": hasattr(self.collection, '_is_loaded') and self.collection._is_loaded,
+                "is_loaded": True,  # Assume loaded if collection exists
                 "config": {
                     "vector_dimension": self.config.vector_dimension,
                     "index_type": self.config.index_type.value,

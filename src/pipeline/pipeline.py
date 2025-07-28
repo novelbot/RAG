@@ -117,6 +117,22 @@ class ProcessingResult:
         if self.total_documents == 0:
             return 100.0
         return (self.successful_documents / self.total_documents) * 100.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert ProcessingResult to dictionary for serialization."""
+        return {
+            "pipeline_id": self.pipeline_id,
+            "total_documents": self.total_documents,
+            "successful_documents": self.successful_documents,
+            "failed_documents": self.failed_documents,
+            "processing_time": self.processing_time,
+            "start_time": self.start_time.isoformat(),
+            "end_time": self.end_time.isoformat(),
+            "success_rate": self.success_rate,
+            "errors": self.errors,
+            "metrics": self.metrics,
+            "checkpoint_data": self.checkpoint_data
+        }
 
 
 # Pipeline stage implementations
@@ -303,10 +319,9 @@ class MetadataEnrichmentStage(PipelineStage):
             # Create chunk metadata if not already present
             if chunk.id not in self.metadata_manager._chunk_metadata:
                 chunk_metadata = self.metadata_manager.create_chunk_metadata(
-                    chunk_id=chunk.id,
                     content=chunk.content,
-                    source_id=chunk.metadata.get('source_id', 'unknown'),
-                    parent_document_id=chunk.metadata.get('document_id', 'unknown')
+                    chunk_index=chunk.metadata.get('chunk_index', 0),
+                    parent_document_id=chunk.metadata.get('parent_document_id', chunk.metadata.get('document_id', 'unknown'))
                 )
                 # Update metadata with existing chunk metadata
                 chunk_metadata.custom_fields.update(chunk.metadata)

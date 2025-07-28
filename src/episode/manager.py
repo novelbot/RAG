@@ -35,7 +35,7 @@ class EpisodeRAGConfig:
     # Vector store config
     collection_name: str = "episode_embeddings"
     vector_dimension: int = 1536
-    index_params: Dict[str, Any] = None
+    index_params: Optional[Dict[str, Any]] = None
     
     # Search config
     default_search_limit: int = 10
@@ -231,7 +231,7 @@ class EpisodeRAGManager(LoggerMixin):
         query: str,
         episode_ids: Optional[List[int]] = None,
         novel_ids: Optional[List[int]] = None,
-        limit: int = None,
+        limit: Optional[int] = None,
         sort_by_episode_number: bool = True,
         **kwargs
     ) -> EpisodeSearchResult:

@@ -81,7 +81,7 @@ class ExtractionConfig:
     # Error handling
     continue_on_error: bool = False
     max_retries: int = 3
-    retry_delay: int = 1
+    retry_delay: float = 1.0
     
     def validate(self) -> None:
         """Validate extraction configuration."""

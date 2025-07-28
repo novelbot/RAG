@@ -71,7 +71,7 @@ class EpisodeSearchResponse(BaseAPISchema):
 
 class EpisodeContextRequest(BaseAPISchema):
     """Episode context request schema."""
-    episode_ids: List[int] = Field(..., min_items=1, max_items=50, description="Episode IDs to include")
+    episode_ids: List[int] = Field(..., min_length=1, max_length=50, description="Episode IDs to include")
     query: Optional[str] = Field(None, description="Optional query for relevance scoring")
     max_context_length: int = Field(10000, ge=1000, le=50000, description="Maximum total character length")
 

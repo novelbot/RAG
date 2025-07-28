@@ -4,7 +4,7 @@ RDB Vector Pipeline - Complete integration of RDB extraction with vector pipelin
 
 import asyncio
 from typing import List, Dict, Any, Optional, Union, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -138,7 +138,7 @@ class RDBVectorPipeline(LoggerMixin):
             config: Pipeline configuration
         """
         self.config = config
-        self.pipeline_id = f"rdb_pipeline_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        self.pipeline_id = f"rdb_pipeline_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         
         # Initialize components
         self._initialize_components()
@@ -213,9 +213,23 @@ class RDBVectorPipeline(LoggerMixin):
         
         # Initialize access control if configured
         self.access_control_manager = None
-        if hasattr(app_config, 'access_control') and app_config.access_control:
+        if app_config.access_control:
             try:
-                self.access_control_manager = AccessControlManager(app_config.access_control)
+                from src.database.base import DatabaseManager
+                from src.auth.rbac import RBACManager as AuthRBACManager
+                
+                # Create database manager for access control
+                db_manager = DatabaseManager(app_config.database)
+                
+                # Create auth RBAC manager
+                auth_rbac_manager = AuthRBACManager(db_manager)
+                
+                # Initialize access control manager
+                self.access_control_manager = AccessControlManager(
+                    milvus_client=self.milvus_client,
+                    db_manager=db_manager,
+                    auth_rbac_manager=auth_rbac_manager
+                )
             except Exception as e:
                 self.logger.warning(f"Failed to initialize access control: {e}")
         
@@ -238,7 +252,7 @@ class RDBVectorPipeline(LoggerMixin):
         Returns:
             Complete pipeline processing result
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         try:
             self.logger.info(f"Starting RDB vector pipeline processing for database: {self.config.database_name}")
@@ -254,7 +268,7 @@ class RDBVectorPipeline(LoggerMixin):
             pipeline_result = await self._process_through_vector_pipeline(documents)
             
             # Create final result
-            end_time = datetime.utcnow()
+            end_time = datetime.now(timezone.utc)
             processing_time = (end_time - start_time).total_seconds()
             
             result = RDBPipelineResult(
@@ -284,7 +298,7 @@ class RDBVectorPipeline(LoggerMixin):
             
         except Exception as e:
             self.logger.error(f"RDB vector pipeline failed: {e}")
-            end_time = datetime.utcnow()
+            end_time = datetime.now(timezone.utc)
             processing_time = (end_time - start_time).total_seconds()
             
             # Return error result
@@ -300,7 +314,7 @@ class RDBVectorPipeline(LoggerMixin):
                 processing_time=processing_time,
                 start_time=start_time,
                 end_time=end_time,
-                errors=[{"error": str(e), "timestamp": datetime.utcnow().isoformat()}]
+                errors=[{"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}]
             )
             
             return result
@@ -315,7 +329,7 @@ class RDBVectorPipeline(LoggerMixin):
         Returns:
             Complete pipeline processing result
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         try:
             self.logger.info(f"Starting RDB vector pipeline processing for tables: {table_names}")
@@ -331,7 +345,7 @@ class RDBVectorPipeline(LoggerMixin):
             pipeline_result = await self._process_through_vector_pipeline(documents)
             
             # Create final result
-            end_time = datetime.utcnow()
+            end_time = datetime.now(timezone.utc)
             processing_time = (end_time - start_time).total_seconds()
             
             result = RDBPipelineResult(
@@ -361,7 +375,7 @@ class RDBVectorPipeline(LoggerMixin):
             
         except Exception as e:
             self.logger.error(f"RDB vector pipeline failed: {e}")
-            end_time = datetime.utcnow()
+            end_time = datetime.now(timezone.utc)
             processing_time = (end_time - start_time).total_seconds()
             
             # Return error result
@@ -377,7 +391,7 @@ class RDBVectorPipeline(LoggerMixin):
                 processing_time=processing_time,
                 start_time=start_time,
                 end_time=end_time,
-                errors=[{"error": str(e), "timestamp": datetime.utcnow().isoformat()}]
+                errors=[{"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}]
             )
             
             return result
@@ -400,7 +414,7 @@ class RDBVectorPipeline(LoggerMixin):
                 self.table_results["all_tables"] = {
                     "success": True,
                     "document_count": len(documents),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             
             return documents
@@ -410,7 +424,7 @@ class RDBVectorPipeline(LoggerMixin):
             self.processing_errors.append({
                 "stage": "rdb_extraction",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
             
             if not self.config.continue_on_table_error:
@@ -444,7 +458,7 @@ class RDBVectorPipeline(LoggerMixin):
                     "success": True,
                     "document_count": len(documents),
                     "row_count": len(result.data),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 
                 self.logger.info(f"Successfully processed table {table_name}: {len(documents)} documents")
@@ -455,14 +469,14 @@ class RDBVectorPipeline(LoggerMixin):
                 self.table_results[table_name] = {
                     "success": False,
                     "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 
                 self.processing_errors.append({
                     "stage": "rdb_extraction",
                     "table": table_name,
                     "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 })
                 
                 if not self.config.continue_on_table_error:
@@ -492,7 +506,7 @@ class RDBVectorPipeline(LoggerMixin):
             self.processing_errors.append({
                 "stage": "vector_pipeline",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
             
             # Try to shutdown pipeline even on error
@@ -512,14 +526,14 @@ class RDBVectorPipeline(LoggerMixin):
                 successful_documents=0,
                 failed_documents=len(documents),
                 processing_time=0.0,
-                start_time=datetime.utcnow(),
-                end_time=datetime.utcnow(),
-                errors=[str(e)]
+                start_time=datetime.now(timezone.utc),
+                end_time=datetime.now(timezone.utc),
+                errors=[{"error": str(e), "type": type(e).__name__, "timestamp": datetime.now(timezone.utc).isoformat()}]
             )
     
     def _create_empty_result(self, start_time: datetime, table_names: Optional[List[str]] = None) -> RDBPipelineResult:
         """Create an empty result for cases with no data."""
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         processing_time = (end_time - start_time).total_seconds()
         
         return RDBPipelineResult(

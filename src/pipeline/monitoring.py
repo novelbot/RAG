@@ -130,6 +130,7 @@ class PipelineMetrics(LoggerMixin):
         # Component tracking
         self.component_health: Dict[str, ComponentHealth] = {}
         self.component_metrics: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        self._component_start_times: Dict[str, datetime] = {}
         
         # Alerts and notifications
         self.active_alerts: Dict[str, PipelineAlert] = {}
@@ -227,12 +228,15 @@ class PipelineMetrics(LoggerMixin):
             **metadata: Additional metadata
         """
         if component_name not in self.component_health:
+            current_time = datetime.utcnow()
             self.component_health[component_name] = ComponentHealth(
                 component_name=component_name,
                 healthy=healthy,
-                last_check=datetime.utcnow(),
+                last_check=current_time,
                 uptime_seconds=0.0
             )
+            # Record the start time for this component
+            self._component_start_times[component_name] = current_time
         
         component = self.component_health[component_name]
         previous_health = component.healthy
@@ -259,9 +263,8 @@ class PipelineMetrics(LoggerMixin):
                 self._resolve_component_alerts(component_name)
         
         # Update uptime
-        if hasattr(self, '_component_start_times'):
-            start_time = self._component_start_times.get(component_name, self.start_time)
-            component.uptime_seconds = (datetime.utcnow() - start_time).total_seconds()
+        start_time = self._component_start_times.get(component_name, self.start_time)
+        component.uptime_seconds = (datetime.utcnow() - start_time).total_seconds()
     
     def _create_alert(self, severity: AlertSeverity, title: str, message: str, component: str, **metadata):
         """Create a new alert."""

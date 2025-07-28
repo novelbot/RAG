@@ -7,7 +7,7 @@ import time
 import psutil
 from typing import Any, Dict, List, Optional, Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import uuid
 from collections import deque
@@ -64,7 +64,7 @@ class BatchMetrics:
         self.total_items_processed += batch_size
         self.total_processing_time += processing_time
         self.memory_usage_peak_mb = max(self.memory_usage_peak_mb, memory_usage)
-        self.last_batch_time = datetime.utcnow()
+        self.last_batch_time = datetime.now(timezone.utc)
         
         # Calculate averages
         self.average_batch_size = self.total_items_processed / max(self.total_batches, 1)
@@ -78,7 +78,7 @@ class BatchMetrics:
         """Update metrics when a batch fails."""
         self.total_batches += 1
         self.failed_batches += 1
-        self.last_batch_time = datetime.utcnow()
+        self.last_batch_time = datetime.now(timezone.utc)
     
     def get_success_rate(self) -> float:
         """Get batch success rate as percentage."""
@@ -192,8 +192,22 @@ class BatchProcessor(LoggerMixin):
             if len(self.processing_queue) >= self.config.queue_size_limit:
                 raise PipelineError("Processing queue is full")
             
-            self.processing_queue.append((item, priority, datetime.utcnow()))
+            self.processing_queue.append((item, priority, datetime.now(timezone.utc)))
             self.logger.debug(f"Added item to processing queue, queue size: {len(self.processing_queue)}")
+            
+            # Create a single-item batch job
+            job_id = str(uuid.uuid4())
+            job = BatchJob(
+                id=job_id,
+                items=[item],
+                created_at=datetime.now(timezone.utc),
+                priority=priority
+            )
+            
+            self.active_jobs[job_id] = job
+            asyncio.create_task(self._process_batch_job(job))
+            
+            return job_id
     
     async def submit_batch(self, items: List[ProcessingData], priority: int = 0) -> str:
         """
@@ -210,7 +224,7 @@ class BatchProcessor(LoggerMixin):
         job = BatchJob(
             id=job_id,
             items=items,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             priority=priority
         )
         
@@ -409,7 +423,7 @@ class BatchProcessor(LoggerMixin):
                     job = BatchJob(
                         id=job_id,
                         items=batch_items,
-                        created_at=datetime.utcnow(),
+                        created_at=datetime.now(timezone.utc),
                         priority=priority
                     )
                     
@@ -427,7 +441,7 @@ class BatchProcessor(LoggerMixin):
     async def _process_batch_job(self, job: BatchJob):
         """Process a batch job."""
         job.status = "processing"
-        job.started_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
         
         try:
             async with self.batch_semaphore:
@@ -439,7 +453,7 @@ class BatchProcessor(LoggerMixin):
                 await asyncio.sleep(0.1 * job.size)  # Simulate processing time
                 
                 job.status = "completed"
-                job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.now(timezone.utc)
                 
                 # Move to completed jobs
                 self.completed_jobs[job.id] = job
@@ -450,7 +464,7 @@ class BatchProcessor(LoggerMixin):
         except Exception as e:
             job.status = "failed"
             job.error = str(e)
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             
             # Move to completed jobs (even if failed)
             self.completed_jobs[job.id] = job

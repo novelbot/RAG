@@ -118,7 +118,8 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             
             # Execute query
             with self.db_manager.get_connection() as conn:
-                result = conn.execute(query, params)
+                from sqlalchemy import text
+                result = conn.execute(text(query), params)
                 rows = result.fetchall()
             
             # Convert to EpisodeData objects
