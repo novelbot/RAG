@@ -73,18 +73,26 @@ class GenericRDBExtractor(BaseRDBExtractor):
             if order_by:
                 query += f" ORDER BY {order_by}"
             
-            # Add limit if specified
-            if self.config.max_rows:
-                query += f" LIMIT {self.config.max_rows}"
-            
-            # Execute query in batches
+            # Execute query in batches (handle max_rows and batch_size together)
             data = []
             offset = 0
             
             with self.engine.connect() as conn:
                 while True:
+                    # Calculate batch size considering max_rows limit
+                    remaining_rows = None
+                    if self.config.max_rows:
+                        remaining_rows = self.config.max_rows - len(data)
+                        if remaining_rows <= 0:
+                            break
+                    
+                    # Use smaller of batch_size and remaining_rows
+                    current_batch_size = self.config.batch_size
+                    if remaining_rows is not None:
+                        current_batch_size = min(current_batch_size, remaining_rows)
+                    
                     # Build batch query with MySQL-compatible syntax
-                    batch_query = f"{query} LIMIT {offset}, {self.config.batch_size}"
+                    batch_query = f"{query} LIMIT {offset}, {current_batch_size}"
                     
                     # Execute batch
                     result = conn.execute(text(batch_query))

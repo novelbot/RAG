@@ -14,10 +14,11 @@ import json
 
 from src.embedding.base import (
     BaseEmbeddingProvider, EmbeddingRequest, EmbeddingResponse, 
-    EmbeddingConfig, EmbeddingProvider, EmbeddingDimension, EmbeddingUsage
+    EmbeddingDimension, EmbeddingUsage
 )
+from src.embedding.types import EmbeddingConfig, EmbeddingProvider
 from src.embedding.providers import OpenAIEmbeddingProvider, GoogleEmbeddingProvider, OllamaEmbeddingProvider
-from src.core.logging import LoggerMixin
+from src.core.logger_mixin import LoggerMixin
 from src.core.exceptions import EmbeddingError, RateLimitError, ConfigurationError
 
 
@@ -142,7 +143,9 @@ class EmbeddingManager(LoggerMixin):
         self.default_cache_ttl = 3600  # 1 hour
         
         # Initialize providers
+        self.logger.info(f"EmbeddingManager initializing with {len(self.provider_configs)} provider configs")
         self._initialize_providers()
+        self.logger.info(f"EmbeddingManager initialized with {len(self.providers)} active providers")
         
         # Health check interval
         self.health_check_interval = 300  # 5 minutes
@@ -172,19 +175,36 @@ class EmbeddingManager(LoggerMixin):
             # Check if provider config has enabled attribute, default to True if not
             if hasattr(provider_config, 'enabled') and not provider_config.enabled:
                 continue
+            
+            # Convert string provider to enum if needed (Context7 MCP pattern)
+            provider_type = provider_config.provider
+            if isinstance(provider_type, str):
+                try:
+                    provider_type = EmbeddingProvider(provider_type.lower())
+                except ValueError:
+                    self.logger.warning(f"Unknown provider string: {provider_type}")
+                    continue
                 
-            provider_class = provider_classes.get(provider_config.provider)
+            provider_class = provider_classes.get(provider_type)
             if not provider_class:
-                self.logger.warning(f"Unknown provider: {provider_config.provider}")
+                self.logger.warning(f"Unknown provider: {provider_type}")
                 continue
             
             try:
-                provider = provider_class(provider_config.config)
-                self.providers[provider_config.provider] = provider
-                self.provider_stats[provider_config.provider] = EmbeddingProviderStats()
-                self.logger.info(f"Initialized embedding provider: {provider_config.provider}")
+                # Handle both EmbeddingProviderConfig and EmbeddingConfig objects (Context7 MCP pattern)
+                if hasattr(provider_config, 'config'):
+                    # This is an EmbeddingProviderConfig object
+                    embedding_config = provider_config.config
+                else:
+                    # This is an EmbeddingConfig object
+                    embedding_config = provider_config
+                
+                provider = provider_class(embedding_config)
+                self.providers[provider_type] = provider
+                self.provider_stats[provider_type] = EmbeddingProviderStats()
+                self.logger.info(f"Initialized embedding provider: {provider_type}")
             except Exception as e:
-                self.logger.error(f"Failed to initialize provider {provider_config.provider}: {e}")
+                self.logger.error(f"Failed to initialize provider {provider_type}: {e}")
     
     def set_load_balancing_strategy(self, strategy: EmbeddingLoadBalancingStrategy) -> None:
         """Set the load balancing strategy."""
@@ -193,6 +213,7 @@ class EmbeddingManager(LoggerMixin):
     
     async def generate_embeddings_async(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """Generate embeddings asynchronously with load balancing and caching."""
+        self.logger.info(f"EmbeddingManager.generate_embeddings_async called with {len(request.input)} texts")
         # Check cache first
         if self.enable_cache:
             cache_key = self._generate_cache_key(request)
@@ -346,13 +367,19 @@ class EmbeddingManager(LoggerMixin):
         """Get list of available and healthy providers."""
         available = []
         current_time = datetime.utcnow()
+        self.logger.info(f"Checking availability for {len(self.provider_configs)} provider configs")
         
         for provider_config in self.provider_configs:
-            if not provider_config.enabled:
+            provider_type = provider_config.provider
+            self.logger.info(f"Checking provider {provider_type}")
+            
+            # Check if provider config has enabled attribute, default to True if not (Context7 MCP pattern)
+            if hasattr(provider_config, 'enabled') and not provider_config.enabled:
+                self.logger.info(f"Provider {provider_type} is disabled")
                 continue
                 
-            provider_type = provider_config.provider
             if provider_type not in self.providers:
+                self.logger.warning(f"Provider {provider_type} not in initialized providers")
                 continue
             
             # Check rate limits
@@ -375,6 +402,7 @@ class EmbeddingManager(LoggerMixin):
             
             available.append(provider_type)
         
+        self.logger.info(f"Found {len(available)} available providers: {[p.value for p in available]}")
         return available
     
     def _is_rate_limited(self, provider_type: EmbeddingProvider, config: EmbeddingProviderConfig) -> bool:
@@ -388,8 +416,9 @@ class EmbeddingManager(LoggerMixin):
             req_time for req_time in requests if req_time > cutoff_time
         ]
         
-        # Check if we've exceeded the limit
-        return len(self.request_counts[provider_type]) >= config.max_requests_per_minute
+        # Check if we've exceeded the limit (Context7 MCP pattern)
+        max_requests = getattr(config, 'max_requests_per_minute', 60)  # Default to 60 if not available
+        return len(self.request_counts[provider_type]) >= max_requests
     
     def _round_robin_select(self, providers: List[EmbeddingProvider]) -> EmbeddingProvider:
         """Round-robin provider selection."""

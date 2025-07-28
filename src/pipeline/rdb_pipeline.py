@@ -174,7 +174,39 @@ class RDBVectorPipeline(LoggerMixin):
         
         # Initialize vector pipeline components
         self.milvus_client = MilvusClient(app_config.milvus)
-        self.embedding_manager = EmbeddingManager(app_config.embedding_providers)
+        # Explicitly connect to Milvus server
+        self.milvus_client.connect()
+        
+        # Create collection if it doesn't exist using Context7 MCP implementation
+        try:
+            self.milvus_client.create_collection_if_not_exists(
+                collection_name=self.config.collection_name,
+                dim=1024,  # Default embedding dimension
+                description=f"Auto-generated collection for RDB data from {self.config.database_name}"
+            )
+            self.logger.info(f"Collection {self.config.collection_name} is ready")
+        except Exception as e:
+            self.logger.error(f"Failed to ensure collection exists: {e}")
+            if not self.config.continue_on_pipeline_error:
+                raise
+        
+        # Convert embedding providers config to EmbeddingProviderConfig list
+        from src.embedding.manager import EmbeddingProviderConfig
+        provider_configs = []
+        if isinstance(app_config.embedding_providers, dict):
+            for name, embedding_config in app_config.embedding_providers.items():
+                provider_config = EmbeddingProviderConfig(
+                    provider=embedding_config.provider,
+                    config=embedding_config,
+                    priority=1,
+                    enabled=True
+                )
+                provider_configs.append(provider_config)
+        else:
+            # If it's already a list, use it directly
+            provider_configs = app_config.embedding_providers
+        
+        self.embedding_manager = EmbeddingManager(provider_configs)
         self.text_cleaner = TextCleaner()
         self.text_splitter = TextSplitter()
         self.metadata_manager = MetadataManager()

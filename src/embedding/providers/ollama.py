@@ -9,9 +9,10 @@ import ollama
 from ollama import Client, AsyncClient
 
 from src.embedding.base import (
-    BaseEmbeddingProvider, EmbeddingConfig, EmbeddingRequest, 
-    EmbeddingResponse, EmbeddingUsage, EmbeddingDimension, EmbeddingProvider
+    BaseEmbeddingProvider, EmbeddingRequest, 
+    EmbeddingResponse, EmbeddingUsage, EmbeddingDimension
 )
+from src.embedding.types import EmbeddingConfig, EmbeddingProvider
 from src.core.exceptions import EmbeddingError, ConfigurationError
 
 
@@ -57,7 +58,12 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
     
     def __init__(self, config: EmbeddingConfig):
         """Initialize Ollama embedding provider."""
-        if config.provider != "ollama" and config.provider != EmbeddingProvider.OLLAMA:
+        # Handle both string and enum provider values (Context7 MCP pattern)
+        provider_value = config.provider
+        if hasattr(provider_value, 'value'):
+            provider_value = provider_value.value
+        
+        if provider_value != "ollama":
             raise ConfigurationError(f"Invalid provider: {config.provider}")
         
         super().__init__(config)

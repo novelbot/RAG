@@ -10,6 +10,8 @@ from dataclasses import field
 from dotenv import load_dotenv
 from pydantic import BaseModel, field_validator
 
+from src.embedding.types import EmbeddingProvider, EmbeddingConfig
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -82,22 +84,7 @@ class LLMConfig(BaseModel):
         return v
 
 
-class EmbeddingConfig(BaseModel):
-    """Embedding model configuration"""
-    provider: str = "ollama"
-    model: str = "jeffh/intfloat-multilingual-e5-large-instruct:f32"
-    api_key: str = ""
-    base_url: Optional[str] = None
-    dimension: int = 1024
-    batch_size: int = 100
-    
-    @field_validator('provider')
-    @classmethod
-    def validate_provider(cls, v):
-        allowed_providers = ['openai', 'huggingface', 'sentence-transformers', 'ollama']
-        if v not in allowed_providers:
-            raise ValueError(f"Provider must be one of: {allowed_providers}")
-        return v
+# EmbeddingConfig is now imported from src.embedding.base
 
 
 class AuthConfig(BaseModel):
@@ -167,7 +154,10 @@ class AppConfig(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     milvus: MilvusConfig = MilvusConfig()
     llm: LLMConfig = LLMConfig()
-    embedding: EmbeddingConfig = EmbeddingConfig()
+    embedding: EmbeddingConfig = field(default_factory=lambda: EmbeddingConfig(
+        provider=EmbeddingProvider.OLLAMA,
+        model="nomic-embed-text"
+    ))
     auth: AuthConfig = AuthConfig()
     api: APIConfig = APIConfig()
     logging: LoggingConfig = LoggingConfig()
@@ -237,9 +227,13 @@ class ConfigManager:
         if os.getenv('GOOGLE_API_KEY'):
             self._config.llm.api_key = os.getenv('GOOGLE_API_KEY', self._config.llm.api_key)
         
-        # Embedding overrides
+        # Embedding overrides (Context7 MCP pattern)
         if os.getenv('EMBEDDING_PROVIDER'):
-            self._config.embedding.provider = os.getenv('EMBEDDING_PROVIDER', self._config.embedding.provider)
+            provider_str = os.getenv('EMBEDDING_PROVIDER')
+            try:
+                self._config.embedding.provider = EmbeddingProvider(provider_str.lower())
+            except ValueError:
+                print(f"Warning: Unknown embedding provider in environment: {provider_str}")
         if os.getenv('EMBEDDING_MODEL'):
             self._config.embedding.model = os.getenv('EMBEDDING_MODEL', self._config.embedding.model)
         if os.getenv('EMBEDDING_API_KEY'):
@@ -280,11 +274,28 @@ class ConfigManager:
         for provider in provider_names:
             env_key = f"EMBEDDING_PROVIDER_{provider.upper()}_API_KEY"
             if os.getenv(env_key):
+                # Convert string to EmbeddingProvider enum (Context7 MCP pattern)
+                try:
+                    provider_enum = EmbeddingProvider(provider)
+                except ValueError:
+                    continue  # Skip unsupported providers
+                
+                # Get dimension value with proper fallback
+                dimension_env_key = f"EMBEDDING_PROVIDER_{provider.upper()}_DIMENSION"
+                dimension_value = os.getenv(dimension_env_key)
+                if dimension_value is None:
+                    dimensions = self._config.embedding.dimensions
+                else:
+                    try:
+                        dimensions = int(dimension_value)
+                    except ValueError:
+                        dimensions = self._config.embedding.dimensions
+                
                 provider_config = EmbeddingConfig(
-                    provider=provider,
+                    provider=provider_enum,
                     api_key=os.getenv(env_key),
                     model=os.getenv(f"EMBEDDING_PROVIDER_{provider.upper()}_MODEL", self._config.embedding.model),
-                    dimension=int(os.getenv(f"EMBEDDING_PROVIDER_{provider.upper()}_DIMENSION", str(self._config.embedding.dimension)))
+                    dimensions=dimensions
                 )
                 self._config.embedding_providers[provider] = provider_config
     

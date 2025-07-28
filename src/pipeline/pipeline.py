@@ -163,8 +163,11 @@ class TextCleaningStage(PipelineStage):
         """Clean document text."""
         doc = data.content
         
-        # Clean the text content
-        cleaned_content = self.text_cleaner.clean_text(doc.content)
+        # Clean the text content - get CleaningResult
+        cleaning_result = self.text_cleaner.clean_text(doc.content)
+        
+        # Extract cleaned text from result
+        cleaned_content = cleaning_result.cleaned_text
         
         # Update document
         doc.content = cleaned_content
@@ -173,8 +176,10 @@ class TextCleaningStage(PipelineStage):
         # Add cleaning metadata
         data.update_context(
             text_cleaning_applied=True,
-            original_length=len(doc.content),
-            cleaned_length=len(cleaned_content)
+            original_length=len(cleaning_result.original_text),
+            cleaned_length=len(cleaned_content),
+            cleaning_rules_applied=cleaning_result.rules_applied,
+            cleaning_warnings=cleaning_result.warnings
         )
         
         return data
@@ -195,15 +200,19 @@ class TextSplittingStage(PipelineStage):
         """Split document into chunks."""
         doc = data.content
         
-        # Split the text
-        chunks = self.text_splitter.split_text(doc.content)
+        # Split the text using Context7 MCP patterns
+        chunk_result = self.text_splitter.chunk_text(doc.content, doc.metadata)
+        chunks = chunk_result.chunks
         
         # Create chunk documents
         chunk_docs = []
         for i, chunk in enumerate(chunks):
+            # Extract text content from chunk dict (Context7 MCP pattern)
+            chunk_content = chunk.get('content', chunk) if isinstance(chunk, dict) else chunk
+            
             chunk_doc = Document(
                 id=f"{doc.id}_chunk_{i}",
-                content=chunk,
+                content=chunk_content,
                 metadata={**doc.metadata, "chunk_index": i, "parent_document_id": doc.id},
                 source_path=doc.source_path,
                 user_id=doc.user_id,
@@ -237,14 +246,19 @@ class EmbeddingGenerationStage(ParallelPipelineStage):
         """Generate embeddings for document chunks."""
         from src.embedding.base import EmbeddingRequest
         
+        self.logger.info(f"EmbeddingGenerationStage: Processing data with {len(data.content) if isinstance(data.content, list) else 1} chunks")
+        
         chunks = data.content if isinstance(data.content, list) else [data.content]
         
         # Prepare embedding requests
         texts = [chunk.content for chunk in chunks]
+        self.logger.info(f"EmbeddingGenerationStage: Prepared {len(texts)} texts for embedding")
         request = EmbeddingRequest(input=texts)
         
         # Generate embeddings
+        self.logger.info(f"EmbeddingGenerationStage: Calling embedding_manager.generate_embeddings_async")
         response = await self.embedding_manager.generate_embeddings_async(request)
+        self.logger.info(f"EmbeddingGenerationStage: Received embeddings response with {len(response.embeddings)} embeddings")
         
         # Add embeddings to chunks
         for chunk, embedding in zip(chunks, response.embeddings):
@@ -281,12 +295,29 @@ class MetadataEnrichmentStage(PipelineStage):
         
         for chunk in chunks:
             # Enrich metadata using metadata manager
-            enriched_metadata = self.metadata_manager.enrich_metadata(
-                chunk.content, 
-                chunk.metadata,
-                source_path=chunk.source_path
-            )
-            chunk.metadata.update(enriched_metadata)
+            # Note: MetadataManager.enrich_metadata expects (chunk_id, enrichment_data)
+            # but we need to add source_path to existing metadata
+            if hasattr(chunk, 'source_path') and chunk.source_path:
+                chunk.metadata['source_path'] = chunk.source_path
+            
+            # Create chunk metadata if not already present
+            if chunk.id not in self.metadata_manager._chunk_metadata:
+                chunk_metadata = self.metadata_manager.create_chunk_metadata(
+                    chunk_id=chunk.id,
+                    content=chunk.content,
+                    source_id=chunk.metadata.get('source_id', 'unknown'),
+                    parent_document_id=chunk.metadata.get('document_id', 'unknown')
+                )
+                # Update metadata with existing chunk metadata
+                chunk_metadata.custom_fields.update(chunk.metadata)
+                self.metadata_manager._chunk_metadata[chunk.id] = chunk_metadata
+            
+            # Enrich with additional metadata
+            enrichment_data = {
+                'processing_timestamp': datetime.utcnow().isoformat(),
+                'content_length': len(chunk.content) if chunk.content else 0
+            }
+            self.metadata_manager.enrich_metadata(chunk.id, enrichment_data)
             
             # Add processing metadata
             chunk.metadata.update({

@@ -10,7 +10,7 @@ from datetime import datetime
 import threading
 from contextlib import contextmanager
 
-from pymilvus import connections, utility, MilvusException
+from pymilvus import connections, utility, MilvusException, Collection, CollectionSchema, FieldSchema, DataType
 from pymilvus.exceptions import ConnectionNotExistException, MilvusException as PyMilvusException
 from loguru import logger
 
@@ -325,6 +325,115 @@ class MilvusClient(LoggerMixin):
         except Exception as e:
             self.logger.error(f"Failed to drop collection {collection_name}: {e}")
             raise MilvusError(f"Drop collection failed: {e}")
+    
+    def create_collection_if_not_exists(
+        self, 
+        collection_name: str, 
+        dim: int = 1024,
+        description: str = "Auto-generated collection for RAG documents"
+    ) -> Collection:
+        """
+        Create a collection if it doesn't exist, based on Context7 PyMilvus documentation.
+        
+        Args:
+            collection_name: Name of the collection to create
+            dim: Dimension of the vector field
+            description: Description of the collection
+            
+        Returns:
+            Collection: The created or existing collection
+        """
+        try:
+            if not self.is_connected():
+                raise MilvusError("Not connected to Milvus server")
+            
+            # Check if collection already exists
+            if utility.has_collection(collection_name, using=self.alias):
+                self.logger.info(f"Collection {collection_name} already exists")
+                return Collection(collection_name, using=self.alias)
+            
+            # Define schema based on Context7 PyMilvus documentation
+            fields = [
+                FieldSchema(
+                    name="id", 
+                    dtype=DataType.VARCHAR, 
+                    is_primary=True, 
+                    auto_id=False, 
+                    max_length=100
+                ),
+                FieldSchema(
+                    name="content", 
+                    dtype=DataType.VARCHAR, 
+                    max_length=65535
+                ),
+                FieldSchema(
+                    name="embedding", 
+                    dtype=DataType.FLOAT_VECTOR, 
+                    dim=dim
+                ),
+                FieldSchema(
+                    name="metadata", 
+                    dtype=DataType.JSON
+                ),
+                FieldSchema(
+                    name="access_tags", 
+                    dtype=DataType.VARCHAR,
+                    max_length=1000
+                )
+            ]
+            
+            # Create schema
+            schema = CollectionSchema(fields, description)
+            
+            # Create collection with Strong consistency (from Context7 docs)
+            collection = Collection(
+                collection_name, 
+                schema, 
+                consistency_level="Strong", 
+                using=self.alias
+            )
+            
+            # Create IVF_FLAT index on embedding field (from Context7 docs)
+            index_params = {
+                "index_type": "IVF_FLAT",
+                "metric_type": "L2", 
+                "params": {"nlist": 128}
+            }
+            collection.create_index("embedding", index_params)
+            
+            # Load collection into memory (from Context7 docs)
+            collection.load()
+            
+            self.logger.info(f"Created and loaded collection: {collection_name} with dimension {dim}")
+            return collection
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create collection {collection_name}: {e}")
+            raise MilvusError(f"Collection creation failed: {e}")
+    
+    def get_entity_count(self, collection_name: str) -> int:
+        """
+        Get the number of entities in a collection.
+        
+        Args:
+            collection_name: Name of the collection
+            
+        Returns:
+            Number of entities in the collection
+        """
+        try:
+            if not self.is_connected():
+                raise MilvusError("Not connected to Milvus server")
+            
+            if not utility.has_collection(collection_name, using=self.alias):
+                return 0
+            
+            collection = Collection(collection_name, using=self.alias)
+            return collection.num_entities
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get entity count for collection {collection_name}: {e}")
+            raise MilvusError(f"Get entity count failed: {e}")
     
     @contextmanager
     def connection_context(self):

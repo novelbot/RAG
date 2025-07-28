@@ -236,8 +236,36 @@ def ingest_data(path, database, recursive, file_types, batch_size, force):
             # Initialize Milvus client
             milvus_client = MilvusClient(config.milvus)
             
-            # Initialize embedding manager
-            embedding_manager = EmbeddingManager(config.embedding_providers)
+            # Create collection if it doesn't exist using Context7 MCP implementation
+            try:
+                milvus_client.create_collection_if_not_exists(
+                    collection_name="documents",
+                    dim=1024,  # Default embedding dimension
+                    description="Auto-generated collection for file-based documents"
+                )
+                console.print(f"[green]✓ Collection 'documents' is ready[/green]")
+            except Exception as e:
+                console.print(f"[red]✗ Failed to ensure collection exists: {e}[/red]")
+                if not force:
+                    return
+            
+            # Initialize embedding manager - convert config to EmbeddingProviderConfig list
+            from src.embedding.manager import EmbeddingProviderConfig
+            provider_configs = []
+            if isinstance(config.embedding_providers, dict):
+                for name, embedding_config in config.embedding_providers.items():
+                    provider_config = EmbeddingProviderConfig(
+                        provider=embedding_config.provider,
+                        config=embedding_config,
+                        priority=1,
+                        enabled=True
+                    )
+                    provider_configs.append(provider_config)
+            else:
+                # If it's already a list, use it directly
+                provider_configs = config.embedding_providers
+            
+            embedding_manager = EmbeddingManager(provider_configs)
             
             # Initialize text processing components
             text_cleaner = TextCleaner()
@@ -405,6 +433,8 @@ def data_status():
         
         try:
             milvus_client = MilvusClient(config.milvus)
+            # Explicitly connect to Milvus server
+            milvus_client.connect()
             
             # Check if collection exists
             collection_name = "documents"

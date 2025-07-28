@@ -2,8 +2,9 @@
 Embedding Model Integration Layer - Unified interface for multiple embedding providers.
 """
 
+from .types import EmbeddingProvider, EmbeddingConfig
 from .base import (
-    EmbeddingProvider, EmbeddingConfig, EmbeddingRequest, EmbeddingResponse, 
+    EmbeddingRequest, EmbeddingResponse, 
     EmbeddingUsage, EmbeddingDimension, BaseEmbeddingProvider
 )
 from .manager import EmbeddingManager, EmbeddingLoadBalancingStrategy, EmbeddingProviderConfig

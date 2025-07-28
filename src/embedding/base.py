@@ -10,16 +10,9 @@ from enum import Enum
 import numpy as np
 from datetime import datetime
 
-from src.core.logging import LoggerMixin
+from src.core.logger_mixin import LoggerMixin
 from src.core.exceptions import EmbeddingError, ConfigurationError
-
-
-class EmbeddingProvider(Enum):
-    """Supported embedding providers."""
-    OPENAI = "openai"
-    GOOGLE = "google"
-    OLLAMA = "ollama"
-    HUGGINGFACE = "huggingface"
+from .types import EmbeddingProvider, EmbeddingConfig
 
 
 @dataclass
@@ -49,35 +42,6 @@ class EmbeddingUsage:
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             total_tokens=self.total_tokens + other.total_tokens
         )
-
-
-@dataclass
-class EmbeddingConfig:
-    """Configuration for embedding providers."""
-    provider: EmbeddingProvider
-    model: str
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    dimensions: Optional[int] = None
-    encoding_format: str = "float"
-    timeout: float = 30.0
-    max_retries: int = 3
-    retry_delay: float = 1.0
-    batch_size: int = 100
-    normalize_embeddings: bool = True
-    
-    # Provider-specific configurations
-    extra_headers: Optional[Dict[str, str]] = None
-    extra_query: Optional[Dict[str, Any]] = None
-    extra_body: Optional[Dict[str, Any]] = None
-    
-    def __post_init__(self):
-        if self.provider == EmbeddingProvider.OPENAI and not self.api_key:
-            raise ConfigurationError("OpenAI API key is required")
-        if self.provider == EmbeddingProvider.GOOGLE and not self.api_key:
-            raise ConfigurationError("Google API key is required")
-        if self.provider == EmbeddingProvider.OLLAMA and not self.base_url:
-            self.base_url = "http://localhost:11434"
 
 
 @dataclass
