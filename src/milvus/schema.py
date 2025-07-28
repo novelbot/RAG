@@ -503,3 +503,43 @@ def create_default_rag_schema(collection_name: str,
         vector_dim=vector_dim,
         description=f"RAG collection for {collection_name} with RBAC support"
     )
+
+
+# Utility functions for backward compatibility
+def create_field(name: str, dtype: DataType, description: str = "", 
+                is_primary: bool = False, auto_id: bool = False, 
+                max_length: Optional[int] = None, dim: Optional[int] = None,
+                **kwargs) -> FieldSchema:
+    """
+    Create a Milvus field schema.
+    
+    Args:
+        name: Field name
+        dtype: Data type
+        description: Field description
+        is_primary: Whether this is the primary field
+        auto_id: Whether to auto-generate IDs
+        max_length: Maximum length for VARCHAR fields
+        dim: Dimension for vector fields
+        **kwargs: Additional parameters
+        
+    Returns:
+        FieldSchema: Milvus field schema
+    """
+    field_kwargs = {
+        "name": name,
+        "dtype": dtype,
+        "description": description,
+        "is_primary": is_primary,
+        "auto_id": auto_id,
+        **kwargs
+    }
+    
+    # Add type-specific parameters
+    if dtype in [DataType.VARCHAR, DataType.STRING] and max_length is not None:
+        field_kwargs["max_length"] = max_length
+    
+    if dtype in [DataType.FLOAT_VECTOR, DataType.BINARY_VECTOR] and dim is not None:
+        field_kwargs["dim"] = dim
+    
+    return FieldSchema(**field_kwargs)

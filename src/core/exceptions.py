@@ -203,3 +203,10 @@ class CircuitBreakerError(RAGException):
     
     def __init__(self, message: str, details: Optional[Any] = None):
         super().__init__(message, 503, details)
+
+
+class StorageError(RAGException):
+    """Storage related errors"""
+    
+    def __init__(self, message: str, details: Optional[Any] = None):
+        super().__init__(message, 500, details)
