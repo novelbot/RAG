@@ -7,7 +7,7 @@ import threading
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from pymilvus import utility, MilvusException, Index
@@ -341,7 +341,7 @@ class IndexManager(LoggerMixin):
             return {
                 "collection_name": collection_name,
                 "progress": progress,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
@@ -592,7 +592,7 @@ class IndexManager(LoggerMixin):
                 "min_latency": min_latency,
                 "max_latency": max_latency,
                 "average_throughput": avg_throughput,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             self.logger.info(f"Search benchmark completed: {avg_latency:.3f}s avg latency, "

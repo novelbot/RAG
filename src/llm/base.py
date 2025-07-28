@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Union, AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from src.core.logging import LoggerMixin
@@ -56,7 +56,7 @@ class LLMMessage:
             role=LLMRole(data["role"]),
             content=data["content"],
             metadata=data.get("metadata", {}),
-            timestamp=datetime.fromisoformat(data.get("timestamp", datetime.utcnow().isoformat()))
+            timestamp=datetime.fromisoformat(data.get("timestamp", datetime.now(timezone.utc).isoformat()))
         )
 
 
@@ -222,7 +222,7 @@ class BaseLLMProvider(ABC, LoggerMixin):
         self._async_client = None
         self._rate_limiter = None
         self._health_status = True
-        self._last_health_check = datetime.utcnow()
+        self._last_health_check = datetime.now(timezone.utc)
         
         # Initialize clients
         self._initialize_clients()
@@ -359,7 +359,7 @@ class BaseLLMProvider(ABC, LoggerMixin):
             response_time = time.time() - start_time
             
             self._health_status = True
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = datetime.now(timezone.utc)
             
             return {
                 "status": "healthy",
@@ -373,7 +373,7 @@ class BaseLLMProvider(ABC, LoggerMixin):
         except Exception as e:
             self.logger.error(f"Health check failed for {self.provider.value}: {e}")
             self._health_status = False
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = datetime.now(timezone.utc)
             
             return {
                 "status": "unhealthy",

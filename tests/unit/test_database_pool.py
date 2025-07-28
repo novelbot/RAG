@@ -3,7 +3,7 @@ Unit tests for Database Connection Pool module.
 """
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.exc import SQLAlchemyError, OperationalError, TimeoutError
 
 from src.database.pool import AdvancedConnectionPool, PoolMetrics, PoolMonitor, PoolManager
@@ -31,7 +31,7 @@ class TestPoolMetrics:
 
     def test_pool_metrics_with_values(self):
         """Test PoolMetrics creation with custom values."""
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc)
         metrics = PoolMetrics(
             total_connections=10,
             active_connections=5,

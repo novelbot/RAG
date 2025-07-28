@@ -8,7 +8,7 @@ import psutil
 import gc
 from typing import Dict, List, Any, Optional, Callable, Union
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from collections import deque
 import threading
@@ -171,7 +171,7 @@ class PerformanceOptimizer(LoggerMixin):
         self._optimization_task: Optional[asyncio.Task] = None
         
         # Performance state
-        self.last_optimization_time = datetime.utcnow()
+        self.last_optimization_time = datetime.now(timezone.utc)
         self.performance_baseline: Optional[PerformanceSnapshot] = None
         
         self.logger.info(f"Performance optimizer initialized with {config.level.value} level")
@@ -279,7 +279,7 @@ class PerformanceOptimizer(LoggerMixin):
         batch_efficiency = total_items / total_time if total_time > 0 else 0.0
         
         return PerformanceSnapshot(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             throughput_per_second=throughput,
             average_latency=latency,
             memory_usage_mb=memory_info.used / (1024 * 1024),
@@ -297,7 +297,7 @@ class PerformanceOptimizer(LoggerMixin):
             return True
         
         # Check if enough time has passed since last optimization
-        time_since_last = (datetime.utcnow() - self.last_optimization_time).total_seconds()
+        time_since_last = (datetime.now(timezone.utc) - self.last_optimization_time).total_seconds()
         if time_since_last < self.config.tuning_interval_seconds:
             return False
         
@@ -357,7 +357,7 @@ class PerformanceOptimizer(LoggerMixin):
             for opt in optimizations_applied:
                 self.optimization_actions.append(opt)
             
-            self.last_optimization_time = datetime.utcnow()
+            self.last_optimization_time = datetime.now(timezone.utc)
             
             if optimizations_applied:
                 self.logger.info(f"Applied {len(optimizations_applied)} optimizations")
@@ -375,7 +375,7 @@ class PerformanceOptimizer(LoggerMixin):
             gc.collect()
             
             action = OptimizationAction(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 action_type="memory_gc",
                 description="Triggered garbage collection due to high memory usage",
                 parameters={"memory_usage_percent": memory_usage_percent},
@@ -390,7 +390,7 @@ class PerformanceOptimizer(LoggerMixin):
             self.cache.clear()
             
             action = OptimizationAction(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 action_type="memory_cache_clear",
                 description="Cleared cache to free memory",
                 parameters={"cache_entries_cleared": cache_size_before},
@@ -410,7 +410,7 @@ class PerformanceOptimizer(LoggerMixin):
             self.batch_processor.current_batch_size = new_size
             
             action = OptimizationAction(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 action_type="memory_batch_reduction",
                 description="Reduced batch size to conserve memory",
                 parameters={"old_batch_size": old_size, "new_batch_size": new_size},
@@ -434,7 +434,7 @@ class PerformanceOptimizer(LoggerMixin):
                 new_workers = min(self.current_workers + 1, self.system_resources["cpu_count"] * 2)
                 
                 action = OptimizationAction(
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     action_type="cpu_increase_workers",
                     description="Increased worker count to utilize available CPU",
                     parameters={"old_workers": self.current_workers, "new_workers": new_workers},
@@ -449,7 +449,7 @@ class PerformanceOptimizer(LoggerMixin):
                 new_workers = max(1, self.current_workers - 1)
                 
                 action = OptimizationAction(
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     action_type="cpu_decrease_workers",
                     description="Decreased worker count to reduce CPU pressure",
                     parameters={"old_workers": self.current_workers, "new_workers": new_workers},
@@ -478,7 +478,7 @@ class PerformanceOptimizer(LoggerMixin):
             self.current_batch_size = new_size
             
             action = OptimizationAction(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 action_type="batch_reduce_size",
                 description="Reduced batch size to improve efficiency",
                 parameters={"old_size": old_size, "new_size": new_size},
@@ -496,7 +496,7 @@ class PerformanceOptimizer(LoggerMixin):
             self.current_batch_size = new_size
             
             action = OptimizationAction(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 action_type="batch_increase_size",
                 description="Increased batch size to process queue faster",
                 parameters={"old_size": old_size, "new_size": new_size},
@@ -529,7 +529,7 @@ class PerformanceOptimizer(LoggerMixin):
                 del self.cache[key]
             
             action = OptimizationAction(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 action_type="cache_optimize_size",
                 description="Reduced cache size due to low hit rate",
                 parameters={"items_removed": items_to_remove, "hit_rate": hit_rate},
@@ -669,7 +669,7 @@ class PerformanceOptimizer(LoggerMixin):
             
             # Record manual optimization
             action = OptimizationAction(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 action_type=f"manual_{optimization_type}",
                 description=f"Manual optimization: {optimization_type}",
                 parameters=parameters,

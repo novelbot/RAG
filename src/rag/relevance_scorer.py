@@ -12,7 +12,7 @@ import pickle
 from typing import Dict, List, Any, Optional, Tuple, Union, Set
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict, Counter
 import json
 import numpy as np
@@ -413,7 +413,7 @@ class LearningToRankManager:
         ])
         
         # Temporal features
-        doc_age = (datetime.utcnow() - context.retrieval_timestamp).total_seconds()
+        doc_age = (datetime.now(timezone.utc) - context.retrieval_timestamp).total_seconds()
         features.append(doc_age)
         
         return np.array(features, dtype=np.float32)
@@ -427,7 +427,7 @@ class LearningToRankManager:
             return True
         
         hours_since_training = (
-            datetime.utcnow() - self.last_training_time
+            datetime.now(timezone.utc) - self.last_training_time
         ).total_seconds() / 3600
         
         return hours_since_training >= self.config.retrain_frequency_hours
@@ -444,7 +444,7 @@ class LearningToRankManager:
             
             # For now, use a mock training process
             # Real implementation would need to store features with feedback
-            self.last_training_time = datetime.utcnow()
+            self.last_training_time = datetime.now(timezone.utc)
             
         except Exception as e:
             # Log error but don't fail scoring
@@ -765,7 +765,7 @@ class RelevanceScorer(LoggerMixin):
             cache_key = f"semantic:{hash(query_text)}:{hash(context.content)}"
             if cache_key in self.score_cache:
                 cached_score, timestamp = self.score_cache[cache_key]
-                if (datetime.utcnow() - timestamp).total_seconds() < self.config.cache_ttl:
+                if (datetime.now(timezone.utc) - timestamp).total_seconds() < self.config.cache_ttl:
                     self.scoring_stats["cache_hits"] += 1
                     return cached_score
             
@@ -783,7 +783,7 @@ class RelevanceScorer(LoggerMixin):
             
             # Cache result
             if self.config.enable_caching:
-                self.score_cache[cache_key] = (similarity, datetime.utcnow())
+                self.score_cache[cache_key] = (similarity, datetime.now(timezone.utc))
                 self._cleanup_cache(self.score_cache)
             
             self.scoring_stats["cache_misses"] += 1

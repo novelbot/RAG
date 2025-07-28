@@ -4,7 +4,7 @@ RDB to Document Adapter - Converts RDB data to pipeline-compatible Document obje
 
 import asyncio
 from typing import List, Dict, Any, Optional, Union, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 from src.core.logging import LoggerMixin
@@ -87,7 +87,7 @@ class RDBDocumentAdapter(LoggerMixin):
             return []
         
         documents = []
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         
         for i, row_data in enumerate(result.data):
             try:
@@ -227,7 +227,7 @@ class RDBDocumentAdapter(LoggerMixin):
             parts.append(str(row_index))
         
         if self.config.include_timestamp_in_id:
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             parts.append(timestamp)
         
         return "_".join(parts)

@@ -3,7 +3,7 @@ Unit tests for Advanced Database Health Check functionality.
 """
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import time
 
 from src.database.health import (
@@ -22,7 +22,7 @@ class TestHealthCheckResult:
     
     def test_health_check_result_creation(self):
         """Test HealthCheckResult creation."""
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc)
         result = HealthCheckResult(
             status=HealthStatus.HEALTHY,
             response_time=0.1,
@@ -39,7 +39,7 @@ class TestHealthCheckResult:
 
     def test_health_check_result_with_error(self):
         """Test HealthCheckResult with error."""
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc)
         result = HealthCheckResult(
             status=HealthStatus.UNHEALTHY,
             response_time=5.0,
@@ -450,7 +450,7 @@ class TestDatabaseHealthChecker:
                         mock_ping.return_value = HealthCheckResult(
                             status=HealthStatus.HEALTHY,
                             response_time=0.1,
-                            timestamp=datetime.utcnow(),
+                            timestamp=datetime.now(timezone.utc),
                             message="Ping successful"
                         )
                         
@@ -486,7 +486,7 @@ class TestDatabaseHealthChecker:
                         mock_ping.return_value = HealthCheckResult(
                             status=HealthStatus.DEGRADED,
                             response_time=6.0,
-                            timestamp=datetime.utcnow(),
+                            timestamp=datetime.now(timezone.utc),
                             message="Slow response"
                         )
                         
@@ -509,7 +509,7 @@ class TestDatabaseHealthChecker:
                         mock_ping.return_value = HealthCheckResult(
                             status=HealthStatus.UNHEALTHY,
                             response_time=0.0,
-                            timestamp=datetime.utcnow(),
+                            timestamp=datetime.now(timezone.utc),
                             message="Connection failed",
                             error="Timeout"
                         )
@@ -529,7 +529,7 @@ class TestDatabaseHealthChecker:
             result = HealthCheckResult(
                 status=HealthStatus.HEALTHY,
                 response_time=0.1 + i * 0.01,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 message=f"Test {i}"
             )
             health_checker._store_health_result(result)
@@ -549,7 +549,7 @@ class TestDatabaseHealthChecker:
             result = HealthCheckResult(
                 status=status,
                 response_time=0.1 + i * 0.1,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 message=f"Test {i}"
             )
             health_checker._store_health_result(result)
@@ -622,8 +622,8 @@ class TestHealthCheckManager:
         checker2 = Mock()
         
         # Mock comprehensive health check results
-        result1 = {'overall_status': 'healthy', 'timestamp': datetime.utcnow().isoformat()}
-        result2 = {'overall_status': 'degraded', 'timestamp': datetime.utcnow().isoformat()}
+        result1 = {'overall_status': 'healthy', 'timestamp': datetime.now(timezone.utc).isoformat()}
+        result2 = {'overall_status': 'degraded', 'timestamp': datetime.now(timezone.utc).isoformat()}
         
         checker1.perform_comprehensive_health_check.return_value = result1
         checker2.perform_comprehensive_health_check.return_value = result2
@@ -644,7 +644,7 @@ class TestHealthCheckManager:
         checker2 = Mock()
         
         # First checker succeeds, second fails
-        result1 = {'overall_status': 'healthy', 'timestamp': datetime.utcnow().isoformat()}
+        result1 = {'overall_status': 'healthy', 'timestamp': datetime.now(timezone.utc).isoformat()}
         checker1.perform_comprehensive_health_check.return_value = result1
         checker2.perform_comprehensive_health_check.side_effect = Exception("Database error")
         
@@ -668,13 +668,13 @@ class TestHealthCheckManager:
         ping_result1 = HealthCheckResult(
             status=HealthStatus.HEALTHY,
             response_time=0.1,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             message="Healthy"
         )
         ping_result2 = HealthCheckResult(
             status=HealthStatus.UNHEALTHY,
             response_time=5.0,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             message="Unhealthy",
             error="Connection failed"
         )

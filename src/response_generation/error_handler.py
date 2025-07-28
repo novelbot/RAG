@@ -7,7 +7,7 @@ import asyncio
 from typing import Dict, List, Any, Optional, Callable, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from src.core.logging import LoggerMixin
 from src.response_generation.base import ResponseGeneratorConfig
@@ -144,7 +144,7 @@ class CircuitBreaker:
         if not self.last_failure_time:
             return True
         
-        time_since_failure = datetime.utcnow() - self.last_failure_time
+        time_since_failure = datetime.now(timezone.utc) - self.last_failure_time
         return time_since_failure.total_seconds() >= self.config.recovery_timeout
     
     def _on_success(self):
@@ -161,7 +161,7 @@ class CircuitBreaker:
     def _on_failure(self):
         """Handle failed operation."""
         self.failure_count += 1
-        self.last_failure_time = datetime.utcnow()
+        self.last_failure_time = datetime.now(timezone.utc)
         
         if self.failure_count >= self.config.failure_threshold:
             self.state = "open"
@@ -238,7 +238,7 @@ class ErrorHandler(LoggerMixin):
         
         # Record error event
         error_event = ErrorEvent(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             error_type=type(error).__name__,
             error_message=str(error),
             severity=severity,
@@ -628,7 +628,7 @@ class ErrorHandler(LoggerMixin):
     
     def _calculate_provider_error_rate(self, provider: str) -> float:
         """Calculate error rate for provider in recent time window."""
-        cutoff_time = datetime.utcnow() - timedelta(hours=1)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
         
         recent_errors = [
             event for event in self.error_history

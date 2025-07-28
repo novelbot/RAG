@@ -6,7 +6,7 @@ import time
 import asyncio
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 from contextlib import contextmanager
 
@@ -111,8 +111,8 @@ class MilvusClient(LoggerMixin):
                     # Update connection status
                     self._connection_status = ConnectionStatus(
                         connected=True,
-                        connection_time=datetime.utcnow(),
-                        last_ping=datetime.utcnow(),
+                        connection_time=datetime.now(timezone.utc),
+                        last_ping=datetime.now(timezone.utc),
                         response_time=time.time() - start_time
                     )
                     
@@ -184,7 +184,7 @@ class MilvusClient(LoggerMixin):
             
             # Update last ping time
             with self._lock:
-                self._connection_status.last_ping = datetime.utcnow()
+                self._connection_status.last_ping = datetime.now(timezone.utc)
                 self._connection_status.response_time = response_time
             
             return {
@@ -192,7 +192,7 @@ class MilvusClient(LoggerMixin):
                 "response_time": response_time,
                 "message": message,
                 "collections_count": len(collections),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
@@ -203,7 +203,7 @@ class MilvusClient(LoggerMixin):
                 "status": "unhealthy",
                 "response_time": response_time,
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
     
     def get_connection_info(self) -> Dict[str, Any]:

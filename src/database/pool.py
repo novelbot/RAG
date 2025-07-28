@@ -5,7 +5,7 @@ Advanced connection pooling with configuration and monitoring.
 import time
 import threading
 from typing import Any, Dict, Optional, List, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from contextlib import contextmanager
 
@@ -43,7 +43,7 @@ class PoolMonitor:
         self.pool_name = pool_name
         self.metrics = PoolMetrics()
         self._lock = threading.Lock()
-        self._start_time = datetime.utcnow()
+        self._start_time = datetime.now(timezone.utc)
         
     def update_metrics(self, pool: Pool) -> None:
         """Update pool metrics."""
@@ -56,7 +56,7 @@ class PoolMonitor:
                 self.metrics.idle_connections = pool.checkedin()
                 self.metrics.active_connections = self.metrics.checked_out
             
-            self.metrics.last_updated = datetime.utcnow()
+            self.metrics.last_updated = datetime.now(timezone.utc)
     
     def increment_hits(self) -> None:
         """Increment pool hit counter."""
@@ -76,7 +76,7 @@ class PoolMonitor:
     def get_metrics(self) -> Dict[str, Any]:
         """Get current pool metrics."""
         with self._lock:
-            uptime = datetime.utcnow() - self._start_time
+            uptime = datetime.now(timezone.utc) - self._start_time
             return {
                 'pool_name': self.pool_name,
                 'total_connections': self.metrics.total_connections,
@@ -162,20 +162,20 @@ class AdvancedConnectionPool(LoggerMixin):
         def connect_handler(dbapi_connection, connection_record):
             """Handle new connection creation."""
             self.logger.debug(f"New connection created in pool '{self.pool_name}'")
-            connection_record.info['created_at'] = datetime.utcnow()
+            connection_record.info['created_at'] = datetime.now(timezone.utc)
             
         @event.listens_for(self._engine, "checkout")
         def checkout_handler(dbapi_connection, connection_record, connection_proxy):
             """Handle connection checkout."""
             self.logger.debug(f"Connection checked out from pool '{self.pool_name}'")
-            connection_record.info['checked_out_at'] = datetime.utcnow()
+            connection_record.info['checked_out_at'] = datetime.now(timezone.utc)
             self.monitor.increment_hits()
             
         @event.listens_for(self._engine, "checkin")
         def checkin_handler(dbapi_connection, connection_record):
             """Handle connection checkin."""
             self.logger.debug(f"Connection checked in to pool '{self.pool_name}'")
-            connection_record.info['checked_in_at'] = datetime.utcnow()
+            connection_record.info['checked_in_at'] = datetime.now(timezone.utc)
             
         @event.listens_for(self._engine, "invalidate")
         def invalidate_handler(dbapi_connection, connection_record, exception):

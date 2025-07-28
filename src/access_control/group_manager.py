@@ -6,7 +6,7 @@ and hierarchical group membership handling.
 """
 
 from typing import Dict, List, Any, Optional, Set, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 import threading
@@ -153,7 +153,7 @@ class GroupMembership:
     
     def is_expired(self) -> bool:
         """Check if membership has expired."""
-        return self.expires_at is not None and datetime.utcnow() > self.expires_at
+        return self.expires_at is not None and datetime.now(timezone.utc) > self.expires_at
     
     def is_active(self) -> bool:
         """Check if membership is active."""
@@ -230,7 +230,7 @@ class GroupManager(LoggerMixin):
             return False
         
         cache_time = self.cache_timestamps[group_id]
-        elapsed = (datetime.utcnow() - cache_time).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - cache_time).total_seconds()
         return elapsed < self.cache_ttl
     
     def _clear_cache(self, group_id: Optional[int] = None) -> None:
@@ -616,7 +616,7 @@ class GroupManager(LoggerMixin):
                 if use_cache:
                     with self._lock:
                         self.group_permissions_cache[group_id] = group_permissions
-                        self.cache_timestamps[group_id] = datetime.utcnow()
+                        self.cache_timestamps[group_id] = datetime.now(timezone.utc)
                 
                 return group_permissions
                 

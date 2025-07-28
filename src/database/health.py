@@ -6,7 +6,7 @@ import time
 import asyncio
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -103,7 +103,7 @@ class DatabaseHealthChecker(LoggerMixin):
                 return HealthCheckResult(
                     status=status,
                     response_time=response_time,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     message=message,
                     details={
                         'query': health_query,
@@ -119,7 +119,7 @@ class DatabaseHealthChecker(LoggerMixin):
             return HealthCheckResult(
                 status=HealthStatus.UNHEALTHY,
                 response_time=response_time,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 message="Ping failed",
                 error=str(e),
                 details={
@@ -410,7 +410,7 @@ class DatabaseHealthChecker(LoggerMixin):
         comprehensive_result = {
             'overall_status': overall_status.value,
             'total_check_time': total_time,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'database_info': {
                 'driver': self.config.driver,
                 'host': self.config.host,
@@ -587,7 +587,7 @@ class HealthCheckManager(LoggerMixin):
                     results[name] = {
                         'overall_status': HealthStatus.UNHEALTHY.value,
                         'error': str(e),
-                        'timestamp': datetime.utcnow().isoformat()
+                        'timestamp': datetime.now(timezone.utc).isoformat()
                     }
         
         return results
@@ -628,7 +628,7 @@ class HealthCheckManager(LoggerMixin):
                     database_summaries[name] = {
                         'status': HealthStatus.UNHEALTHY.value,
                         'error': str(e),
-                        'last_check': datetime.utcnow().isoformat()
+                        'last_check': datetime.now(timezone.utc).isoformat()
                     }
             
             return {

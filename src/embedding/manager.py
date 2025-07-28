@@ -8,7 +8,7 @@ import asyncio
 from typing import Dict, List, Any, Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import json
 
@@ -55,7 +55,7 @@ class EmbeddingProviderStats:
         self.average_response_time = self.total_response_time / self.successful_requests
         self.total_tokens += tokens
         self.total_cost += cost
-        self.last_request_time = datetime.utcnow()
+        self.last_request_time = datetime.now(timezone.utc)
         self.consecutive_errors = 0
         self.is_healthy = True
     
@@ -65,7 +65,7 @@ class EmbeddingProviderStats:
         self.failed_requests += 1
         self.last_error = error
         self.consecutive_errors += 1
-        self.last_request_time = datetime.utcnow()
+        self.last_request_time = datetime.now(timezone.utc)
         
         # Mark as unhealthy if too many consecutive errors
         if self.consecutive_errors >= 5:
@@ -101,7 +101,7 @@ class EmbeddingCache:
     
     def is_expired(self) -> bool:
         """Check if cache entry is expired."""
-        return datetime.utcnow() > self.timestamp + timedelta(seconds=self.ttl)
+        return datetime.now(timezone.utc) > self.timestamp + timedelta(seconds=self.ttl)
 
 
 class EmbeddingManager(LoggerMixin):
@@ -149,7 +149,7 @@ class EmbeddingManager(LoggerMixin):
         
         # Health check interval
         self.health_check_interval = 300  # 5 minutes
-        self.last_health_check = datetime.utcnow()
+        self.last_health_check = datetime.now(timezone.utc)
     
     def _initialize_providers(self) -> None:
         """Initialize all configured providers."""
@@ -236,7 +236,7 @@ class EmbeddingManager(LoggerMixin):
                 start_time = time.time()
                 
                 # Track request count for rate limiting
-                self.request_counts[provider_type].append(datetime.utcnow())
+                self.request_counts[provider_type].append(datetime.now(timezone.utc))
                 
                 # Make the request
                 response = await provider.generate_embeddings_async(request)
@@ -300,7 +300,7 @@ class EmbeddingManager(LoggerMixin):
                 start_time = time.time()
                 
                 # Track request count for rate limiting
-                self.request_counts[provider_type].append(datetime.utcnow())
+                self.request_counts[provider_type].append(datetime.now(timezone.utc))
                 
                 # Make the request
                 response = provider.generate_embeddings(request)
@@ -366,7 +366,7 @@ class EmbeddingManager(LoggerMixin):
     def _get_available_providers(self, request: EmbeddingRequest) -> List[EmbeddingProvider]:
         """Get list of available and healthy providers."""
         available = []
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         self.logger.info(f"Checking availability for {len(self.provider_configs)} provider configs")
         
         for provider_config in self.provider_configs:
@@ -407,7 +407,7 @@ class EmbeddingManager(LoggerMixin):
     
     def _is_rate_limited(self, provider_type: EmbeddingProvider, config: EmbeddingProviderConfig) -> bool:
         """Check if provider is rate limited."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         requests = self.request_counts[provider_type]
         
         # Clean old requests (older than 1 minute)
@@ -542,7 +542,7 @@ class EmbeddingManager(LoggerMixin):
             embeddings=response.embeddings,
             model=response.model,
             dimensions=response.dimensions,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             ttl=self.default_cache_ttl
         )
         
@@ -631,7 +631,7 @@ class EmbeddingManager(LoggerMixin):
                 }
                 self.provider_stats[provider_type].is_healthy = False
         
-        self.last_health_check = datetime.utcnow()
+        self.last_health_check = datetime.now(timezone.utc)
         return results
     
     def get_manager_info(self) -> Dict[str, Any]:

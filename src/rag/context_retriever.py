@@ -11,7 +11,7 @@ import math
 from typing import Dict, List, Any, Optional, Tuple, Union, Set
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict, Counter
 
 import numpy as np
@@ -408,7 +408,7 @@ class ContextRetriever(LoggerMixin):
         user_context: Optional[Dict[str, Any]]
     ) -> List[DocumentContext]:
         """Rank contexts with temporal awareness."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         
         for context in contexts:
             # Calculate recency score

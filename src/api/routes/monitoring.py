@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 import asyncio
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from ...auth.dependencies import get_current_user, MockUser
 from ...metrics.database import get_metrics_db
@@ -52,24 +52,24 @@ async def health_check() -> Dict[str, Any]:
     
     return {
         "status": overall_status,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "response_time_ms": round(response_time, 2),
         "components": {
             "database": {
                 "status": db_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "vector_database": {
                 "status": vector_db_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "llm_services": {
                 "status": llm_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "embedding_services": {
                 "status": embedding_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             }
         },
         "version": "0.1.0"
@@ -86,7 +86,7 @@ async def simple_health_check() -> Dict[str, str]:
     """
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -264,7 +264,7 @@ async def get_service_status() -> Dict[str, Any]:
         },
         "overall_status": overall_status,
         "response_time_ms": round(total_time, 2),
-        "last_updated": datetime.utcnow().isoformat(),
+        "last_updated": datetime.now(timezone.utc).isoformat(),
         "configuration": {
             "llm_provider": config.llm.provider,
             "llm_model": config.llm.model,
@@ -358,7 +358,7 @@ async def get_metrics(
             "cache_hit_rate": 0.85,  # Would get from cache system
             "error_rate": 1.0 - query_stats.get('success_rate', 1.0)
         },
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "collection_period": "real-time"
     }
 
@@ -386,7 +386,7 @@ async def get_recent_activity(
         for event in events:
             # Calculate relative time
             event_time = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             time_diff = now - event_time
             
             if time_diff.days > 0:
@@ -452,7 +452,7 @@ async def get_query_trends(
                 "avg_response_time_ms": round(avg_response_time, 2)
             },
             "period_days": days,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
     except Exception as e:
@@ -466,7 +466,7 @@ async def get_query_trends(
                 "avg_response_time_ms": 0.0
             },
             "period_days": days,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 
@@ -494,7 +494,7 @@ async def get_user_activity(
                 "last_hour": active_1hour,
                 "last_24_hours": active_24hour
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
     except Exception as e:
@@ -505,5 +505,5 @@ async def get_user_activity(
                 "last_hour": 0,
                 "last_24_hours": 0
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }

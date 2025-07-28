@@ -8,7 +8,7 @@ import json
 import time
 from typing import Dict, List, Any, Optional, Set, Union, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -204,7 +204,7 @@ class MetadataEnricher(LoggerMixin):
             
             # Add processing metadata
             enriched_metadata.update({
-                "enrichment_timestamp": datetime.utcnow().isoformat(),
+                "enrichment_timestamp": datetime.now(timezone.utc).isoformat(),
                 "enrichment_level": enrichment_level.value,
                 "enricher_version": "1.0"
             })
@@ -264,7 +264,7 @@ class MetadataEnricher(LoggerMixin):
             
             # Return base metadata with error information
             base_metadata["enrichment_error"] = str(e)
-            base_metadata["enrichment_timestamp"] = datetime.utcnow().isoformat()
+            base_metadata["enrichment_timestamp"] = datetime.now(timezone.utc).isoformat()
             return base_metadata
     
     async def _analyze_content(self, content: str) -> ContentAnalysis:

@@ -25,8 +25,8 @@ class TestConnectionStatus:
 
     def test_connection_status_with_values(self):
         """Test ConnectionStatus with all values."""
-        from datetime import datetime
-        now = datetime.utcnow()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
         
         status = ConnectionStatus(
             connected=True,

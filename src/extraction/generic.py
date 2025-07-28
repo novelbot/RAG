@@ -5,7 +5,7 @@ Generic RDB data extractor implementation.
 import asyncio
 import time
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import text, Table, MetaData, inspect, func
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
@@ -131,7 +131,7 @@ class GenericRDBExtractor(BaseRDBExtractor):
                 metadata=metadata,
                 errors=errors,
                 extraction_id=extraction_id,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
             
             execution_time = time.time() - start_time
@@ -212,7 +212,7 @@ class GenericRDBExtractor(BaseRDBExtractor):
                     metadata=None,
                     errors=[str(e)],
                     extraction_id=self.create_extraction_id(table_name),
-                    timestamp=datetime.utcnow()
+                    timestamp=datetime.now(timezone.utc)
                 )
                 results.append(error_result)
                 
@@ -303,7 +303,7 @@ class GenericRDBExtractor(BaseRDBExtractor):
                 metadata=None,  # No metadata for custom queries
                 errors=errors,
                 extraction_id=extraction_id,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
             
             execution_time = time.time() - start_time

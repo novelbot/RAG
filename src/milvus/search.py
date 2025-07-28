@@ -8,7 +8,7 @@ import hashlib
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import json
 import numpy as np
 
@@ -65,7 +65,7 @@ class CachedResult:
     
     def is_expired(self) -> bool:
         """Check if cached result is expired."""
-        return datetime.utcnow() > self.timestamp + timedelta(seconds=self.ttl_seconds)
+        return datetime.now(timezone.utc) > self.timestamp + timedelta(seconds=self.ttl_seconds)
 
 
 @dataclass
@@ -531,7 +531,7 @@ class SearchManager(LoggerMixin):
             if cache_key in self._cache:
                 cached = self._cache[cache_key]
                 if not cached.is_expired():
-                    self._cache_access_times[cache_key] = datetime.utcnow()
+                    self._cache_access_times[cache_key] = datetime.now(timezone.utc)
                     return cached
                 else:
                     # Remove expired entry
@@ -552,12 +552,12 @@ class SearchManager(LoggerMixin):
             
             cached_result = CachedResult(
                 result=result,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 ttl_seconds=self.default_ttl
             )
             
             self._cache[cache_key] = cached_result
-            self._cache_access_times[cache_key] = datetime.utcnow()
+            self._cache_access_times[cache_key] = datetime.now(timezone.utc)
     
     def _evict_oldest_entry(self) -> None:
         """Evict oldest cache entry."""
@@ -595,7 +595,7 @@ class SearchManager(LoggerMixin):
             else:
                 metrics.error_count += 1
             
-            metrics.last_query_time = datetime.utcnow()
+            metrics.last_query_time = datetime.now(timezone.utc)
     
     def get_search_metrics(self, collection_name: str) -> Dict[str, Any]:
         """Get search metrics for collection."""
@@ -638,7 +638,7 @@ class SearchManager(LoggerMixin):
         """Get cache statistics."""
         with self._lock:
             # Calculate cache age distribution
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             age_distribution = {}
             
             for key, cached in self._cache.items():

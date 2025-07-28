@@ -7,7 +7,7 @@ import time
 import yaml
 from typing import Dict, List, Any, Optional, Union, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 import uuid
@@ -329,14 +329,14 @@ class MetadataEnrichmentStage(PipelineStage):
             
             # Enrich with additional metadata
             enrichment_data = {
-                'processing_timestamp': datetime.utcnow().isoformat(),
+                'processing_timestamp': datetime.now(timezone.utc).isoformat(),
                 'content_length': len(chunk.content) if chunk.content else 0
             }
             self.metadata_manager.enrich_metadata(chunk.id, enrichment_data)
             
             # Add processing metadata
             chunk.metadata.update({
-                "processed_at": datetime.utcnow().isoformat(),
+                "processed_at": datetime.now(timezone.utc).isoformat(),
                 "processing_pipeline_id": data.context.batch_id,
                 "document_id": data.context.document_id
             })
@@ -631,7 +631,7 @@ class VectorPipeline(LoggerMixin):
         if not self.is_initialized:
             await self.initialize()
         
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         batch_id = str(uuid.uuid4())
         self.current_batch_id = batch_id
         
@@ -646,7 +646,7 @@ class VectorPipeline(LoggerMixin):
             else:  # HYBRID
                 result = await self._process_hybrid_mode(documents, batch_id)
             
-            end_time = datetime.utcnow()
+            end_time = datetime.now(timezone.utc)
             processing_time = (end_time - start_time).total_seconds()
             
             # Create processing result

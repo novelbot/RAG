@@ -397,7 +397,7 @@ class SingleLLMGenerator(BaseResponseGenerator, LoggerMixin):
             prompt_tokens=llm_response.usage.prompt_tokens if llm_response.usage else 0,
             completion_tokens=llm_response.usage.completion_tokens if llm_response.usage else 0,
             request_timestamp=request.timestamp,
-            response_timestamp=datetime.utcnow()
+            response_timestamp=datetime.now(timezone.utc)
         )
         
         # Add processing steps
@@ -462,7 +462,7 @@ class SingleLLMGenerator(BaseResponseGenerator, LoggerMixin):
         )
         
         from src.llm.base import LLMResponse, LLMProvider, LLMUsage
-        from datetime import datetime
+        from datetime import datetime, timezone
         
         # Create minimal LLM response
         fallback_llm_response = LLMResponse(
@@ -484,7 +484,7 @@ class SingleLLMGenerator(BaseResponseGenerator, LoggerMixin):
             tokens_used=0,
             context_length=len(request.context or ""),
             request_timestamp=request.timestamp,
-            response_timestamp=datetime.utcnow()
+            response_timestamp=datetime.now(timezone.utc)
         )
         
         # Add error information

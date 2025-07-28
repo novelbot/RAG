@@ -53,6 +53,12 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             "dimensions": 1024,
             "max_tokens": 2048,
             "description": "Snowflake Arctic embedding model"
+        },
+        "jeffh/intfloat-multilingual-e5-large-instruct": {
+            "dimensions": 1024,
+            "max_tokens": 512,
+            "description": "Multilingual E5 large instruct model",
+            "requires_instruction_prompt": True
         }
     }
     
@@ -101,10 +107,14 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             # Make API call
             model = request.model or self.config.model
             
+            # Apply instruction prompt if model requires it
+            is_query = request.metadata.get("is_query", False) if request.metadata else False
+            processed_input = self._apply_instruction_prompt(request.input, model, is_query)
+            
             # Ollama embed accepts either single string or list of strings
             response = await self._async_client.embed(
                 model=model,
-                input=request.input
+                input=processed_input
             )
             
             # Process response
@@ -129,10 +139,14 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             # Make API call
             model = request.model or self.config.model
             
+            # Apply instruction prompt if model requires it
+            is_query = request.metadata.get("is_query", False) if request.metadata else False
+            processed_input = self._apply_instruction_prompt(request.input, model, is_query)
+            
             # Ollama embed accepts either single string or list of strings
             response = self._client.embed(
                 model=model,
-                input=request.input
+                input=processed_input
             )
             
             # Process response
@@ -155,11 +169,13 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         total_usage = EmbeddingUsage()
         
         model = request.model or self.config.model
+        is_query = request.metadata.get("is_query", False) if request.metadata else False
         
         for batch in batches:
+            processed_batch = self._apply_instruction_prompt(batch, model, is_query)
             response = await self._async_client.embed(
                 model=model,
-                input=batch
+                input=processed_batch
             )
             
             batch_result = self._process_response(response, model, len(batch))
@@ -183,11 +199,13 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         total_usage = EmbeddingUsage()
         
         model = request.model or self.config.model
+        is_query = request.metadata.get("is_query", False) if request.metadata else False
         
         for batch in batches:
+            processed_batch = self._apply_instruction_prompt(batch, model, is_query)
             response = self._client.embed(
                 model=model,
-                input=batch
+                input=processed_batch
             )
             
             batch_result = self._process_response(response, model, len(batch))
@@ -280,9 +298,14 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             available_models = []
             
             for model in models_response.get("models", []):
-                model_name = model.get("name", "").split(":")[0]  # Remove tag
+                # Try 'name' field first, then 'model' field
+                model_name = model.get("name", "") or model.get("model", "")
                 if model_name:
+                    # Add both full name and base name (without tag)
                     available_models.append(model_name)
+                    base_name = model_name.split(":")[0]
+                    if base_name != model_name and base_name not in available_models:
+                        available_models.append(base_name)
             
             return available_models
             
@@ -298,10 +321,11 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             model_info = {}
             
             for model in models_response.get("models", []):
-                model_name = model.get("name", "").split(":")[0]
+                # Try 'name' field first, then 'model' field
+                model_name = model.get("name", "") or model.get("model", "")
                 if model_name:
                     model_info[model_name] = {
-                        "name": model.get("name", ""),
+                        "name": model_name,
                         "size": model.get("size", 0),
                         "modified_at": model.get("modified_at", ""),
                         "digest": model.get("digest", "")
@@ -323,7 +347,15 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             models_response = test_client.list()
             
             # Check if the specified model is available
-            available_models = [m.get("name", "").split(":")[0] for m in models_response.get("models", [])]
+            available_models = []
+            for m in models_response.get("models", []):
+                model_name = m.get("name", "") or m.get("model", "")
+                if model_name:
+                    available_models.append(model_name)
+                    base_name = model_name.split(":")[0]
+                    if base_name != model_name:
+                        available_models.append(base_name)
+            
             if self.config.model not in available_models:
                 self.logger.warning(f"Model {self.config.model} not found in available models: {available_models}")
                 # Don't fail validation - model might be pullable
@@ -335,6 +367,30 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             self.logger.error(f"Configuration validation failed: {e}")
             return False
     
+    def _apply_instruction_prompt(self, texts: List[str], model: str, is_query: bool = False) -> List[str]:
+        """Apply instruction prompt formatting for models that require it."""
+        # Check if model requires instruction prompt
+        model_base = model.split(':')[0]  # Remove tag (e.g., :f32)
+        model_config = self.MODEL_CONFIGS.get(model_base, {})
+        
+        if not model_config.get("requires_instruction_prompt", False):
+            return texts
+        
+        # Apply E5 instruction format
+        if "intfloat-multilingual-e5-large-instruct" in model_base:
+            if is_query:
+                # For queries: add instruction prompt
+                task_description = "Given a web search query, retrieve relevant passages that answer the query"
+                formatted_texts = [f"Instruct: {task_description}\nQuery: {text}" for text in texts]
+            else:
+                # For documents: no special formatting needed
+                formatted_texts = texts
+            
+            self.logger.debug(f"Applied E5 instruction formatting for {'query' if is_query else 'document'}")
+            return formatted_texts
+        
+        return texts
+
     def _handle_api_error(self, error: Exception) -> EmbeddingError:
         """Handle Ollama API errors."""
         error_msg = str(error)

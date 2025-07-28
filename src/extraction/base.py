@@ -7,7 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union, Iterator, AsyncIterator, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import json
 import hashlib
@@ -148,7 +148,7 @@ class ExtractionStats:
     
     def complete(self) -> None:
         """Mark extraction as complete and calculate final stats."""
-        self.end_time = datetime.utcnow()
+        self.end_time = datetime.now(timezone.utc)
         self.total_time = (self.end_time - self.start_time).total_seconds()
         
         if self.total_time > 0:
@@ -529,7 +529,7 @@ class BaseRDBExtractor(ABC, LoggerMixin):
         Returns:
             Unique extraction ID
         """
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         return f"{table_name}_{timestamp}_{hash(time.time()) % 10000}"
     
     def update_incremental_state(self, table_name: str, data: List[Dict[str, Any]]) -> None:
@@ -549,7 +549,7 @@ class BaseRDBExtractor(ABC, LoggerMixin):
         # Create or update incremental state
         state = IncrementalState(
             table_name=table_name,
-            last_sync_time=datetime.utcnow(),
+            last_sync_time=datetime.now(timezone.utc),
             last_sync_value=latest_value,
             row_count=len(data)
         )

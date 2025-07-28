@@ -7,7 +7,7 @@ import streamlit as st
 import requests
 import jwt
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import hashlib
@@ -45,7 +45,7 @@ class AuthManager:
             
             # Check expiration
             exp = payload.get('exp')
-            if exp and datetime.utcnow().timestamp() > exp:
+            if exp and datetime.now(timezone.utc).timestamp() > exp:
                 self.logout()
                 return False
                 
@@ -291,8 +291,8 @@ class AuthManager:
             "username": user_info["username"],
             "role": user_info["role"],
             "user_id": user_info["user_id"],
-            "iat": datetime.utcnow().timestamp(),
-            "exp": (datetime.utcnow() + timedelta(hours=8)).timestamp()
+            "iat": datetime.now(timezone.utc).timestamp(),
+            "exp": (datetime.now(timezone.utc) + timedelta(hours=8)).timestamp()
         }
         
         # For demo purposes, use a simple encoding (not secure for production)

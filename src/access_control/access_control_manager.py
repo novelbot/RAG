@@ -7,7 +7,7 @@ group management, and audit logging.
 """
 
 from typing import Dict, List, Any, Optional, Set, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 from src.core.logging import LoggerMixin
@@ -304,7 +304,7 @@ class AccessControlManager(LoggerMixin):
                 "group_memberships": [membership.to_dict() for membership in group_memberships],
                 "effective_permissions": list(effective_permissions),
                 "recent_audit_events": [event.to_dict() for event in recent_events],
-                "summary_generated_at": datetime.utcnow().isoformat()
+                "summary_generated_at": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
@@ -393,7 +393,7 @@ class AccessControlManager(LoggerMixin):
                     "audit_logging": self.enable_audit_logging,
                     "default_deny": self.default_deny
                 },
-                "generated_at": datetime.utcnow().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
         except Exception as e:
             self.logger.error(f"Failed to get system statistics: {e}")

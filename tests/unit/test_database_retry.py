@@ -3,7 +3,7 @@ Unit tests for Database Retry and Error Handling functionality.
 """
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import time
 from sqlalchemy import exc
 
@@ -434,7 +434,7 @@ class TestCircuitBreaker:
         
         # Mock time passage
         with patch('src.database.retry.datetime') as mock_datetime:
-            mock_datetime.utcnow.return_value = datetime.utcnow() + timedelta(seconds=10)
+            mock_datetime.utcnow.return_value = datetime.now(timezone.utc) + timedelta(seconds=10)
             
             def success_func():
                 return "success"

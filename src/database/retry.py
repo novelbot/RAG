@@ -7,7 +7,7 @@ import random
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from functools import wraps
 from contextlib import contextmanager
@@ -421,7 +421,7 @@ class CircuitBreaker(LoggerMixin):
         if self.last_failure_time is None:
             return True
         
-        elapsed = datetime.utcnow() - self.last_failure_time
+        elapsed = datetime.now(timezone.utc) - self.last_failure_time
         return elapsed.total_seconds() >= self.config.recovery_timeout
     
     def _record_success(self) -> None:
@@ -440,7 +440,7 @@ class CircuitBreaker(LoggerMixin):
         """Record failed operation."""
         with self._lock:
             self.failure_count += 1
-            self.last_failure_time = datetime.utcnow()
+            self.last_failure_time = datetime.now(timezone.utc)
             
             if self.state == CircuitState.HALF_OPEN:
                 self.state = CircuitState.OPEN
@@ -500,7 +500,7 @@ class DatabaseRetryHandler(LoggerMixin):
                 if error_type not in self.metrics.errors_by_type:
                     self.metrics.errors_by_type[error_type] = 0
                 self.metrics.errors_by_type[error_type] += 1
-                self.metrics.last_error_time = datetime.utcnow()
+                self.metrics.last_error_time = datetime.now(timezone.utc)
             
             # Determine if this is a disconnect error
             if self.classifier.should_invalidate_connection(error):
@@ -549,7 +549,7 @@ class DatabaseRetryHandler(LoggerMixin):
                 # Success - reset consecutive failures
                 with self._lock:
                     self.metrics.consecutive_failures = 0
-                    self.metrics.last_success_time = datetime.utcnow()
+                    self.metrics.last_success_time = datetime.now(timezone.utc)
                     if attempt > 0:
                         self.metrics.retry_successes += 1
                 

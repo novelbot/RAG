@@ -13,7 +13,7 @@ import json
 import traceback
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -33,7 +33,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
     def __init__(self):
         """Initialize integration test."""
         self.test_results = {}
-        self.test_start_time = datetime.utcnow()
+        self.test_start_time = datetime.now(timezone.utc)
         
         self.logger.info("RDB Pipeline Integration Test started")
     
@@ -83,7 +83,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                     "errors": len(validation_report.errors),
                     "warnings": len(validation_report.warnings)
                 },
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             self.logger.info(f"✓ {test_name} completed")
@@ -94,7 +94,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 "message": f"Configuration validation failed: {e}",
                 "error": str(e),
                 "traceback": traceback.format_exc(),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             self.logger.error(f"✗ {test_name} failed: {e}")
     
@@ -110,7 +110,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 self.test_results[test_name] = {
                     "status": "skipped",
                     "message": "No RDB connections configured",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 return
             
@@ -138,7 +138,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                     self.test_results[test_name] = {
                         "status": "failed",
                         "message": "Database connection validation failed",
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }
                     return
                 
@@ -167,7 +167,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                         "tables": tables[:5],  # First 5 tables
                         "extraction_results": extraction_results
                     },
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 
             finally:
@@ -181,7 +181,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 "message": f"RDB extraction test failed: {e}",
                 "error": str(e),
                 "traceback": traceback.format_exc(),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             self.logger.error(f"✗ {test_name} failed: {e}")
     
@@ -197,7 +197,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 self.test_results[test_name] = {
                     "status": "skipped",
                     "message": "No RDB connections configured",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 return
             
@@ -243,7 +243,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                             "include_column_names": adapter_config.include_column_names
                         }
                     },
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 
             finally:
@@ -257,7 +257,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 "message": f"Document adapter test failed: {e}",
                 "error": str(e),
                 "traceback": traceback.format_exc(),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             self.logger.error(f"✗ {test_name} failed: {e}")
     
@@ -273,7 +273,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 self.test_results[test_name] = {
                     "status": "skipped",
                     "message": "No RDB connections configured",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 return
             
@@ -282,7 +282,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
             db_config = config.rdb_connections[db_name]
             
             # Create test collection name
-            test_collection = f"test_rdb_pipeline_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            test_collection = f"test_rdb_pipeline_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
             
             # Create pipeline with test settings
             pipeline = create_rdb_vector_pipeline(
@@ -324,7 +324,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                         "health_status": health_status,
                         "error_count": len(result.errors)
                     },
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 
             finally:
@@ -338,7 +338,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 "message": f"Integrated pipeline test failed: {e}",
                 "error": str(e),
                 "traceback": traceback.format_exc(),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             self.logger.error(f"✗ {test_name} failed: {e}")
     
@@ -361,7 +361,7 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                     "validation_status": validation_report.overall_status,
                     "validation_checks": validation_report.summary['total_checks']
                 },
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             self.logger.info(f"✓ {test_name} completed")
@@ -372,13 +372,13 @@ class RDBPipelineIntegrationTest(LoggerMixin):
                 "message": f"CLI commands test failed: {e}",
                 "error": str(e),
                 "traceback": traceback.format_exc(),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             self.logger.error(f"✗ {test_name} failed: {e}")
     
     def _generate_test_report(self) -> Dict[str, Any]:
         """Generate comprehensive test report."""
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         total_time = (end_time - self.test_start_time).total_seconds()
         
         # Calculate summary statistics
@@ -499,7 +499,7 @@ async def main():
         print_test_report(report)
         
         # Save report to file
-        report_file = f"rdb_pipeline_test_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        report_file = f"rdb_pipeline_test_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
         with open(report_file, 'w') as f:
             json.dump(report, f, indent=2, default=str)
         

@@ -6,7 +6,7 @@ import time
 from typing import Dict, List, Any, Optional, Set, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import threading
 
@@ -184,7 +184,7 @@ class RBACManager(LoggerMixin):
         # Cache user context
         with self._lock:
             self._user_cache[user_id] = context
-            self._cache_timestamps[user_id] = datetime.utcnow()
+            self._cache_timestamps[user_id] = datetime.now(timezone.utc)
         
         self.logger.debug(f"Created user context for: {user_id}")
         return context
@@ -195,7 +195,7 @@ class RBACManager(LoggerMixin):
             # Check cache validity
             if user_id in self._cache_timestamps:
                 cache_time = self._cache_timestamps[user_id]
-                elapsed = (datetime.utcnow() - cache_time).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - cache_time).total_seconds()
                 
                 if elapsed > self._cache_ttl:
                     # Cache expired

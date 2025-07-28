@@ -5,7 +5,7 @@ RDB Configuration Validator - Validates RDB pipeline configurations and connecti
 import asyncio
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from src.core.logging import LoggerMixin
@@ -110,7 +110,7 @@ class RDBConfigValidator(LoggerMixin):
     
     def __init__(self):
         """Initialize RDB configuration validator."""
-        self.validation_id = f"rdb_validation_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        self.validation_id = f"rdb_validation_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         self.results: List[ValidationResult] = []
         
         self.logger.info(f"Initialized RDB configuration validator {self.validation_id}")
@@ -150,7 +150,7 @@ class RDBConfigValidator(LoggerMixin):
         report = ValidationReport(
             overall_status=overall_status,
             validation_id=self.validation_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             results=self.results.copy()
         )
         
@@ -183,7 +183,7 @@ class RDBConfigValidator(LoggerMixin):
         return ValidationReport(
             overall_status=overall_status,
             validation_id=self.validation_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             results=self.results.copy()
         )
     

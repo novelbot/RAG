@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from loguru import logger
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.core.config import DatabaseConfig
 from src.core.exceptions import DatabaseError, ConfigurationError
@@ -218,7 +218,7 @@ class DatabaseManager(LoggerMixin):
                 # Simple query to test connection
                 conn.execute(text("SELECT 1"))
                 self._is_connected = True
-                self._last_health_check = datetime.utcnow()
+                self._last_health_check = datetime.now(timezone.utc)
                 self.logger.debug("Database connection test successful")
                 return True
         except Exception as e:
@@ -269,7 +269,7 @@ class DatabaseManager(LoggerMixin):
                 return {
                     "status": "healthy",
                     "message": "Database connection is healthy",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 
         except Exception as e:
@@ -277,7 +277,7 @@ class DatabaseManager(LoggerMixin):
             return {
                 "status": "unhealthy",
                 "message": f"Database connection failed: {e}",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
     
     def __enter__(self):

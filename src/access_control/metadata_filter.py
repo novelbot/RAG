@@ -7,7 +7,7 @@ user permissions, content attributes, and hierarchical access control.
 
 import json
 from typing import Dict, List, Any, Optional, Set, Union, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -304,7 +304,7 @@ class MetadataFilter(LoggerMixin):
             ))
         
         if access_window:
-            cutoff_date = datetime.utcnow() - timedelta(days=access_window)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=access_window)
             conditions.append(FilterCondition(
                 field="last_accessed",
                 operation=FilterOperation.GREATER_THAN_EQUAL,

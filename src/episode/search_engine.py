@@ -288,7 +288,8 @@ class EpisodeSearchEngine(LoggerMixin):
             request = EmbeddingRequest(
                 input=[query],
                 model="text-embedding-ada-002",  # Default model
-                encoding_format="float"
+                encoding_format="float",
+                metadata={"is_query": True}
             )
             
             response = self.embedding_manager.generate_embeddings(request)

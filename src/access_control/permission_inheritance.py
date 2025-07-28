@@ -9,7 +9,7 @@ import json
 from typing import Dict, List, Any, Optional, Set, Tuple, Union
 from enum import Enum
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import threading
 
@@ -52,7 +52,7 @@ class PermissionRule:
     
     def is_expired(self) -> bool:
         """Check if permission rule has expired."""
-        return self.expires_at is not None and datetime.utcnow() > self.expires_at
+        return self.expires_at is not None and datetime.now(timezone.utc) > self.expires_at
     
     def matches_subject(self, user_id: int, group_ids: List[str], roles: List[str]) -> bool:
         """Check if rule matches the subject (user, group, or role)."""
@@ -412,7 +412,7 @@ class PermissionInheritanceManager(LoggerMixin):
             # Cache result
             with self._lock:
                 self.permission_cache[cache_key] = result
-                self.cache_timestamps[cache_key] = datetime.utcnow()
+                self.cache_timestamps[cache_key] = datetime.now(timezone.utc)
             
             return result
             
@@ -513,7 +513,7 @@ class PermissionInheritanceManager(LoggerMixin):
         # Check time-based conditions
         if "time_range" in rule.conditions:
             time_range = rule.conditions["time_range"]
-            current_time = datetime.utcnow().time()
+            current_time = datetime.now(timezone.utc).time()
             
             start_time = datetime.strptime(time_range["start"], "%H:%M").time()
             end_time = datetime.strptime(time_range["end"], "%H:%M").time()
@@ -597,7 +597,7 @@ class PermissionInheritanceManager(LoggerMixin):
             return False
         
         cache_time = self.cache_timestamps[cache_key]
-        elapsed = (datetime.utcnow() - cache_time).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - cache_time).total_seconds()
         return elapsed < self.cache_ttl
     
     def _clear_cache(self) -> None:
@@ -683,7 +683,7 @@ class PermissionInheritanceManager(LoggerMixin):
                     resource_id: node.to_dict() 
                     for resource_id, node in self.resource_hierarchy.items()
                 },
-                "exported_at": datetime.utcnow().isoformat(),
+                "exported_at": datetime.now(timezone.utc).isoformat(),
                 "version": "1.0"
             }
     

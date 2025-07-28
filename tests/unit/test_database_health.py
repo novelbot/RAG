@@ -3,7 +3,7 @@ Unit tests for Database Health Monitor module.
 """
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from src.database.health import DatabaseHealthChecker, HealthCheckManager, HealthStatus, HealthCheckResult
@@ -29,7 +29,7 @@ class TestHealthCheckResult:
         check = HealthCheckResult(
             status=HealthStatus.HEALTHY,
             response_time=0.001,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             message="Connection OK"
         )
         
@@ -43,7 +43,7 @@ class TestHealthCheckResult:
         check = HealthCheckResult(
             status=HealthStatus.UNHEALTHY,
             response_time=0.5,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             message="Connection failed",
             error="Timeout occurred"
         )
@@ -53,7 +53,7 @@ class TestHealthCheckResult:
 
     def test_health_check_result_with_details(self):
         """Test HealthCheckResult with details."""
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc)
         check = HealthCheckResult(
             status=HealthStatus.HEALTHY,
             response_time=0.001,

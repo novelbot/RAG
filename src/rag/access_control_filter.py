@@ -10,7 +10,7 @@ import time
 from typing import Dict, List, Any, Optional, Set, Union, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.core.logging import LoggerMixin
 from src.core.exceptions import AccessControlError, InsufficientPermissionsError
@@ -622,7 +622,7 @@ class AccessControlFilter(LoggerMixin):
             result, timestamp = self.permission_cache[cache_key]
             
             # Check TTL
-            if (datetime.utcnow() - timestamp).total_seconds() < self.config.cache_ttl:
+            if (datetime.now(timezone.utc) - timestamp).total_seconds() < self.config.cache_ttl:
                 self.filter_stats["cache_hits"] += 1
                 return result
             else:
@@ -645,7 +645,7 @@ class AccessControlFilter(LoggerMixin):
             for key in oldest_keys:
                 del self.permission_cache[key]
         
-        self.permission_cache[cache_key] = (result, datetime.utcnow())
+        self.permission_cache[cache_key] = (result, datetime.now(timezone.utc))
     
     def _update_filter_stats(
         self,

@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any, Union, AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from enum import Enum
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.core.logger_mixin import LoggerMixin
 from src.core.exceptions import EmbeddingError, ConfigurationError
@@ -263,7 +263,7 @@ class BaseEmbeddingProvider(ABC, LoggerMixin):
             
             response_time = time.time() - start_time
             self._health_status = True
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = datetime.now(timezone.utc)
             
             return {
                 "status": "healthy",
@@ -275,7 +275,7 @@ class BaseEmbeddingProvider(ABC, LoggerMixin):
             
         except Exception as e:
             self._health_status = False
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = datetime.now(timezone.utc)
             
             return {
                 "status": "unhealthy",
@@ -305,7 +305,7 @@ class BaseEmbeddingProvider(ABC, LoggerMixin):
             
             response_time = time.time() - start_time
             self._health_status = True
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = datetime.now(timezone.utc)
             
             return {
                 "status": "healthy",
@@ -317,7 +317,7 @@ class BaseEmbeddingProvider(ABC, LoggerMixin):
             
         except Exception as e:
             self._health_status = False
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = datetime.now(timezone.utc)
             
             return {
                 "status": "unhealthy",

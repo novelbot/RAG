@@ -91,7 +91,7 @@ def ingest_data(path, database, recursive, file_types, batch_size, force):
         from src.text_processing.metadata_manager import MetadataManager
         import asyncio
         import json
-        from datetime import datetime
+        from datetime import datetime, timezone
         
         # Get application config
         config = get_config()
@@ -135,7 +135,7 @@ def ingest_data(path, database, recursive, file_types, batch_size, force):
                                 "file_path": str(file_path),
                                 "file_extension": file_path.suffix,
                                 "file_size": file_path.stat().st_size,
-                                "ingested_at": datetime.utcnow().isoformat()
+                                "ingested_at": datetime.now(timezone.utc).isoformat()
                             },
                             source_path=str(file_path)
                         )
@@ -389,7 +389,7 @@ def data_status():
     try:
         from src.core.config import get_config
         from src.milvus.client import MilvusClient
-        from datetime import datetime
+        from datetime import datetime, timezone
         
         config = get_config()
         

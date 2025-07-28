@@ -9,7 +9,7 @@ import json
 import hashlib
 import threading
 from typing import Dict, List, Any, Optional, Set, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -351,7 +351,7 @@ class AuditLogger(LoggerMixin):
                     "resource_type": resource_type,
                     "resource_id": resource_id,
                     "resource_name": resource_name,
-                    "event_timestamp": datetime.utcnow().isoformat(),
+                    "event_timestamp": datetime.now(timezone.utc).isoformat(),
                     "metadata": metadata or {}
                 }
                 
@@ -430,7 +430,7 @@ class AuditLogger(LoggerMixin):
             return
         
         try:
-            current_time = datetime.utcnow()
+            current_time = datetime.now(timezone.utc)
             key = f"{ip_address}:{username or 'unknown'}"
             
             # Initialize tracking for this key
@@ -729,7 +729,7 @@ class AuditLogger(LoggerMixin):
         """
         try:
             days_to_keep = retention_days or self.retention_days
-            cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
             
             with self._get_session() as session:
                 # Count logs to be deleted
@@ -827,7 +827,7 @@ class AuditLogger(LoggerMixin):
             with self._get_session() as session:
                 total_logs = session.query(AuditLog).count()
                 recent_logs = session.query(AuditLog).filter(
-                    AuditLog.event_timestamp >= datetime.utcnow() - timedelta(hours=24)
+                    AuditLog.event_timestamp >= datetime.now(timezone.utc) - timedelta(hours=24)
                 ).count()
                 
                 return {

@@ -12,7 +12,7 @@ import math
 from typing import Dict, List, Any, Optional, Tuple, Union, Set
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict, Counter
 import json
 import hashlib
@@ -881,7 +881,7 @@ class QueryExpander(LoggerMixin):
             return
         
         # Get user's recent query history
-        cutoff_date = datetime.utcnow() - timedelta(days=self.config.history_window_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.config.history_window_days)
         user_queries = [
             entry for entry in self.query_history
             if entry.user_id == user_id and entry.timestamp >= cutoff_date
@@ -924,13 +924,13 @@ class QueryExpander(LoggerMixin):
             query=original_query,
             expanded_query=expanded_query,
             user_id=user_id,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         
         self.query_history.append(entry)
         
         # Cleanup old entries
-        cutoff_date = datetime.utcnow() - timedelta(days=self.config.history_window_days * 2)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.config.history_window_days * 2)
         self.query_history = [
             e for e in self.query_history if e.timestamp >= cutoff_date
         ]

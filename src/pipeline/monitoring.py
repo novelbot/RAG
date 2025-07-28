@@ -7,7 +7,7 @@ import asyncio
 import psutil
 from typing import Dict, List, Any, Optional, Union
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from collections import defaultdict, deque
 
@@ -57,7 +57,7 @@ class ResourceMetrics:
     network_io_mb: float = 0.0
     process_count: int = 0
     thread_count: int = 0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -71,7 +71,7 @@ class PerformanceMetrics:
     success_rate_percent: float = 100.0
     total_processed: int = 0
     total_errors: int = 0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -83,7 +83,7 @@ class CostMetrics:
     total_cost: float = 0.0
     cost_per_document: float = 0.0
     estimated_monthly_cost: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -119,8 +119,8 @@ class PipelineMetrics(LoggerMixin):
         
         # Current metrics
         self.status = PipelineStatus.INITIALIZING
-        self.start_time = datetime.utcnow()
-        self.last_updated = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
+        self.last_updated = datetime.now(timezone.utc)
         
         # Historical metrics (time-series data)
         self.resource_history: deque = deque(maxlen=int(history_retention_hours * 3600 / monitoring_interval))
@@ -189,9 +189,9 @@ class PipelineMetrics(LoggerMixin):
         
         if not success:
             self.total_errors += 1
-            self.error_events.append(datetime.utcnow())
+            self.error_events.append(datetime.now(timezone.utc))
         
-        self.last_updated = datetime.utcnow()
+        self.last_updated = datetime.now(timezone.utc)
     
     def record_api_call(self, provider: str, cost: float, tokens: int = 0):
         """
@@ -228,7 +228,7 @@ class PipelineMetrics(LoggerMixin):
             **metadata: Additional metadata
         """
         if component_name not in self.component_health:
-            current_time = datetime.utcnow()
+            current_time = datetime.now(timezone.utc)
             self.component_health[component_name] = ComponentHealth(
                 component_name=component_name,
                 healthy=healthy,
@@ -242,7 +242,7 @@ class PipelineMetrics(LoggerMixin):
         previous_health = component.healthy
         
         component.healthy = healthy
-        component.last_check = datetime.utcnow()
+        component.last_check = datetime.now(timezone.utc)
         component.metadata.update(metadata)
         
         if not healthy:
@@ -264,7 +264,7 @@ class PipelineMetrics(LoggerMixin):
         
         # Update uptime
         start_time = self._component_start_times.get(component_name, self.start_time)
-        component.uptime_seconds = (datetime.utcnow() - start_time).total_seconds()
+        component.uptime_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
     
     def _create_alert(self, severity: AlertSeverity, title: str, message: str, component: str, **metadata):
         """Create a new alert."""
@@ -275,7 +275,7 @@ class PipelineMetrics(LoggerMixin):
             title=title,
             message=message,
             component=component,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             metadata=metadata
         )
         
@@ -299,7 +299,7 @@ class PipelineMetrics(LoggerMixin):
         for alert_id, alert in self.active_alerts.items():
             if alert.component == component and not alert.resolved:
                 alert.resolved = True
-                alert.resolved_at = datetime.utcnow()
+                alert.resolved_at = datetime.now(timezone.utc)
                 resolved_alerts.append(alert_id)
         
         for alert_id in resolved_alerts:
@@ -319,7 +319,7 @@ class PipelineMetrics(LoggerMixin):
     
     async def _collect_metrics(self):
         """Collect current metrics."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         
         # Collect resource metrics
         resource_metrics = self._collect_resource_metrics()
@@ -350,7 +350,7 @@ class PipelineMetrics(LoggerMixin):
                 memory_percent=process.memory_percent(),
                 process_count=len(psutil.pids()),
                 thread_count=process.num_threads(),
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
         except Exception as e:
             self.logger.warning(f"Failed to collect resource metrics: {e}")
@@ -360,7 +360,7 @@ class PipelineMetrics(LoggerMixin):
         """Collect performance metrics."""
         try:
             # Calculate throughput (items per second)
-            runtime_seconds = (datetime.utcnow() - self.start_time).total_seconds()
+            runtime_seconds = (datetime.now(timezone.utc) - self.start_time).total_seconds()
             throughput = self.total_documents_processed / max(runtime_seconds, 1)
             
             # Calculate latency percentiles
@@ -387,7 +387,7 @@ class PipelineMetrics(LoggerMixin):
                 success_rate_percent=success_rate,
                 total_processed=total_operations,
                 total_errors=self.total_errors,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
         except Exception as e:
             self.logger.warning(f"Failed to collect performance metrics: {e}")
@@ -400,7 +400,7 @@ class PipelineMetrics(LoggerMixin):
             cost_per_doc = self.total_cost / max(self.total_documents_processed, 1)
             
             # Estimate monthly cost based on current rate
-            runtime_hours = (datetime.utcnow() - self.start_time).total_seconds() / 3600
+            runtime_hours = (datetime.now(timezone.utc) - self.start_time).total_seconds() / 3600
             hourly_cost = self.total_cost / max(runtime_hours, 1)
             monthly_cost = hourly_cost * 24 * 30  # Rough monthly estimate
             
@@ -413,7 +413,7 @@ class PipelineMetrics(LoggerMixin):
                 total_cost=self.total_cost,
                 cost_per_document=cost_per_doc,
                 estimated_monthly_cost=monthly_cost,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
         except Exception as e:
             self.logger.warning(f"Failed to collect cost metrics: {e}")
@@ -474,7 +474,7 @@ class PipelineMetrics(LoggerMixin):
     
     def get_current_status(self) -> Dict[str, Any]:
         """Get current pipeline status."""
-        uptime_seconds = (datetime.utcnow() - self.start_time).total_seconds()
+        uptime_seconds = (datetime.now(timezone.utc) - self.start_time).total_seconds()
         
         return {
             "status": self.status.value,
@@ -608,7 +608,7 @@ class PipelineMetrics(LoggerMixin):
             "costs": self.get_cost_summary(),
             "alerts": self.get_alerts(),
             "component_health": self.get_component_health_summary(),
-            "export_timestamp": datetime.utcnow().isoformat()
+            "export_timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         if format.lower() == "json":

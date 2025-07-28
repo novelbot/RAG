@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer
 from typing import Dict, List, Any, Optional
 import asyncio
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from ...auth.dependencies import get_current_user, MockUser
 
@@ -48,24 +48,24 @@ async def health_check() -> Dict[str, Any]:
     
     return {
         "status": overall_status,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "response_time_ms": round(response_time, 2),
         "components": {
             "database": {
                 "status": db_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "vector_database": {
                 "status": vector_db_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "llm_services": {
                 "status": llm_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             },
             "embedding_services": {
                 "status": embedding_status,
-                "last_check": datetime.utcnow().isoformat()
+                "last_check": datetime.now(timezone.utc).isoformat()
             }
         },
         "version": "0.1.0"
@@ -82,7 +82,7 @@ async def simple_health_check() -> Dict[str, str]:
     """
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -145,7 +145,7 @@ async def get_system_metrics(
             "average_latency_ms": 1250.5,
             "token_usage": 45230
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -195,7 +195,7 @@ async def get_logs(
     # TODO: Implement actual log retrieval
     mock_logs = [
         {
-            "timestamp": (datetime.utcnow() - timedelta(minutes=i)).isoformat(),
+            "timestamp": (datetime.now(timezone.utc) - timedelta(minutes=i)).isoformat(),
             "level": "INFO" if i % 3 != 0 else "WARNING",
             "module": f"module_{i % 5}",
             "message": f"Sample log message {i}",
@@ -222,7 +222,7 @@ async def get_logs(
             "since": since,
             "limit": limit
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -270,7 +270,7 @@ async def get_usage_statistics(
             "total_tokens_used": base_requests * period_multiplier * 50,
             "error_count": max(0, period_multiplier // 10)
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -485,7 +485,7 @@ async def get_service_status() -> Dict[str, Any]:
         },
         "overall_status": overall_status,
         "response_time_ms": round(total_time, 2),
-        "last_updated": datetime.utcnow().isoformat(),
+        "last_updated": datetime.now(timezone.utc).isoformat(),
         "configuration": {
             "llm_provider": config.llm.provider,
             "llm_model": config.llm.model,

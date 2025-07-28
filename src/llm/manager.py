@@ -8,7 +8,7 @@ import random
 from typing import Dict, List, Any, Optional, Union, AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import json
 from collections import defaultdict
 
@@ -49,7 +49,7 @@ class ProviderStats:
         self.successful_requests += 1
         self.total_response_time += response_time
         self.average_response_time = self.total_response_time / self.successful_requests
-        self.last_request_time = datetime.utcnow()
+        self.last_request_time = datetime.now(timezone.utc)
         self.consecutive_errors = 0
         self.is_healthy = True
     
@@ -59,7 +59,7 @@ class ProviderStats:
         self.failed_requests += 1
         self.last_error = error
         self.consecutive_errors += 1
-        self.last_request_time = datetime.utcnow()
+        self.last_request_time = datetime.now(timezone.utc)
         
         # Mark as unhealthy if too many consecutive errors
         if self.consecutive_errors >= 5:
@@ -117,7 +117,7 @@ class LLMManager(LoggerMixin):
         
         # Health check interval
         self.health_check_interval = 300  # 5 minutes
-        self.last_health_check = datetime.utcnow()
+        self.last_health_check = datetime.now(timezone.utc)
     
     def _initialize_providers(self) -> None:
         """Initialize all configured providers."""
@@ -211,7 +211,7 @@ class LLMManager(LoggerMixin):
     def _get_available_providers(self) -> List[LLMProvider]:
         """Get list of available and healthy providers."""
         available = []
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         
         for provider_config in self.provider_configs:
             if not provider_config.enabled:
@@ -238,7 +238,7 @@ class LLMManager(LoggerMixin):
     
     def _is_rate_limited(self, provider_type: LLMProvider, config: ProviderConfig) -> bool:
         """Check if provider is rate limited."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         requests = self.request_counts[provider_type]
         
         # Clean old requests (older than 1 minute)
@@ -337,7 +337,7 @@ class LLMManager(LoggerMixin):
                 start_time = time.time()
                 
                 # Track request count for rate limiting
-                self.request_counts[provider_type].append(datetime.utcnow())
+                self.request_counts[provider_type].append(datetime.now(timezone.utc))
                 
                 # Make the request
                 response = await provider.generate_async(request)
@@ -392,7 +392,7 @@ class LLMManager(LoggerMixin):
                 start_time = time.time()
                 
                 # Track request count for rate limiting
-                self.request_counts[provider_type].append(datetime.utcnow())
+                self.request_counts[provider_type].append(datetime.now(timezone.utc))
                 
                 # Make the request
                 response = provider.generate(request)
@@ -446,7 +446,7 @@ class LLMManager(LoggerMixin):
             start_time = time.time()
             
             # Track request count for rate limiting
-            self.request_counts[provider_type].append(datetime.utcnow())
+            self.request_counts[provider_type].append(datetime.now(timezone.utc))
             
             # Make the streaming request
             async for chunk in provider.generate_stream_async(request):
@@ -489,7 +489,7 @@ class LLMManager(LoggerMixin):
             start_time = time.time()
             
             # Track request count for rate limiting
-            self.request_counts[provider_type].append(datetime.utcnow())
+            self.request_counts[provider_type].append(datetime.now(timezone.utc))
             
             # Make the streaming request
             for chunk in provider.generate_stream(request):
@@ -602,7 +602,7 @@ class LLMManager(LoggerMixin):
                 }
                 self.provider_stats[provider_type].is_healthy = False
         
-        self.last_health_check = datetime.utcnow()
+        self.last_health_check = datetime.now(timezone.utc)
         return results
     
     def health_check(self) -> Dict[str, Any]:
@@ -633,7 +633,7 @@ class LLMManager(LoggerMixin):
                 }
                 self.provider_stats[provider_type].is_healthy = False
         
-        self.last_health_check = datetime.utcnow()
+        self.last_health_check = datetime.now(timezone.utc)
         return results
     
     def get_manager_info(self) -> Dict[str, Any]:

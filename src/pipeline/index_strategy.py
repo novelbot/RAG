@@ -7,7 +7,7 @@ import time
 import math
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from src.core.logging import LoggerMixin
@@ -232,7 +232,7 @@ class AdvancedIndexStrategy(LoggerMixin):
                 "data_distribution": data_analysis,
                 "query_patterns": query_patterns,
                 "resource_requirements": self._estimate_resource_requirements(collection_size, vector_dim),
-                "analysis_timestamp": datetime.utcnow().isoformat()
+                "analysis_timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             self.logger.info(f"Analyzed collection characteristics: {collection.collection_name}")
@@ -662,14 +662,14 @@ class AdvancedIndexStrategy(LoggerMixin):
             
             # Track strategy application
             self.current_strategies[collection.collection_name] = strategy
-            self.last_optimization[collection.collection_name] = datetime.utcnow()
+            self.last_optimization[collection.collection_name] = datetime.now(timezone.utc)
             
             # Record performance baseline
             if collection.collection_name not in self.performance_history:
                 self.performance_history[collection.collection_name] = []
             
             self.performance_history[collection.collection_name].append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "strategy": strategy.value,
                 "index_type": recommendation.index_type.value,
                 "build_time": result["build_time"],
@@ -750,7 +750,7 @@ class AdvancedIndexStrategy(LoggerMixin):
             return True
         
         # Check if enough time has passed
-        hours_since_last = (datetime.utcnow() - last_opt).total_seconds() / 3600
+        hours_since_last = (datetime.now(timezone.utc) - last_opt).total_seconds() / 3600
         return hours_since_last >= self.config.rebalancing_interval_hours
     
     def _analyze_performance_trends(self, collection_name: str, current_metrics: Dict[str, Any]) -> Dict[str, Any]:

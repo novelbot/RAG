@@ -7,7 +7,7 @@ import sqlite3
 import hashlib
 import jwt
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
@@ -146,7 +146,7 @@ class SQLiteAuthManager:
             'user_id': user_data['id'],
             'username': user_data['username'],
             'role': user_data['role'],
-            'exp': datetime.utcnow() + timedelta(hours=24)
+            'exp': datetime.now(timezone.utc) + timedelta(hours=24)
         }
         
         token = jwt.encode(payload, self.secret_key, algorithm='HS256')
@@ -159,7 +159,7 @@ class SQLiteAuthManager:
             """, (
                 user_data['id'],
                 token,
-                datetime.utcnow() + timedelta(hours=24)
+                datetime.now(timezone.utc) + timedelta(hours=24)
             ))
             conn.commit()
         

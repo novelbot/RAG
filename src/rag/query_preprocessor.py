@@ -17,7 +17,7 @@ import asyncio
 from enum import Enum
 from typing import Dict, List, Any, Optional, Union, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 try:
@@ -479,7 +479,8 @@ class QueryPreprocessor(LoggerMixin):
                     input=[query],
                     model=self.config.embedding_model,
                     dimensions=self.config.embedding_dimensions,
-                    normalize=self.config.normalize_embeddings
+                    normalize=self.config.normalize_embeddings,
+                    metadata={"is_query": True}
                 )
                 
                 response = self.embedding_manager.generate_embeddings(request)
@@ -801,7 +802,7 @@ class QueryPreprocessor(LoggerMixin):
         result, timestamp = self.cache[cache_key]
         
         # Check if expired
-        if (datetime.utcnow() - timestamp).total_seconds() > self.config.cache_ttl:
+        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self.config.cache_ttl:
             del self.cache[cache_key]
             return None
         
@@ -820,7 +821,7 @@ class QueryPreprocessor(LoggerMixin):
             for key in oldest_keys:
                 del self.cache[key]
         
-        self.cache[cache_key] = (result, datetime.utcnow())
+        self.cache[cache_key] = (result, datetime.now(timezone.utc))
     
     def get_stats(self) -> Dict[str, Any]:
         """Get preprocessing statistics."""

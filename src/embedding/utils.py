@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.embedding.base import EmbeddingResponse, EmbeddingDimension
 from src.core.logging import LoggerMixin
@@ -477,7 +477,7 @@ class EmbeddingCache:
         entry = self.cache[key]
         
         # Check if expired
-        if datetime.utcnow().timestamp() - entry["timestamp"] > self.ttl:
+        if datetime.now(timezone.utc).timestamp() - entry["timestamp"] > self.ttl:
             del self.cache[key]
             del self.access_times[key]
             self.stats["evictions"] += 1
@@ -485,7 +485,7 @@ class EmbeddingCache:
             return None
         
         # Update access time
-        self.access_times[key] = datetime.utcnow().timestamp()
+        self.access_times[key] = datetime.now(timezone.utc).timestamp()
         self.stats["hits"] += 1
         
         return entry["embedding"]
@@ -499,9 +499,9 @@ class EmbeddingCache:
         # Store entry
         self.cache[key] = {
             "embedding": embedding,
-            "timestamp": datetime.utcnow().timestamp()
+            "timestamp": datetime.now(timezone.utc).timestamp()
         }
-        self.access_times[key] = datetime.utcnow().timestamp()
+        self.access_times[key] = datetime.now(timezone.utc).timestamp()
         self.stats["size"] = len(self.cache)
     
     def _evict_lru(self) -> None:

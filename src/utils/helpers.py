@@ -5,7 +5,7 @@ Utility functions and helpers for the RAG server.
 import hashlib
 import json
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import uuid
 import re
 from pathlib import Path
@@ -149,7 +149,7 @@ def validate_url(url: str) -> bool:
 
 def get_current_timestamp() -> datetime:
     """Get current UTC timestamp"""
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def format_timestamp(timestamp: datetime, format_str: str = "%Y-%m-%d %H:%M:%S") -> str:

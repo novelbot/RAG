@@ -146,7 +146,7 @@ class MilvusRBACManager(LoggerMixin):
                 
                 # Cache the context
                 self._user_context_cache[user_id] = context
-                self._cache_timestamps[user_id] = datetime.utcnow()
+                self._cache_timestamps[user_id] = datetime.now(timezone.utc)
                 
                 self.logger.debug(f"Created Milvus user context for user {user_id}")
                 return context
@@ -167,7 +167,7 @@ class MilvusRBACManager(LoggerMixin):
             return False
         
         cache_time = self._cache_timestamps[user_id]
-        elapsed = (datetime.utcnow() - cache_time).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - cache_time).total_seconds()
         return elapsed < self._cache_ttl
     
     def create_access_rule(self, 

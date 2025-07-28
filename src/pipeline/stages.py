@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.core.logging import LoggerMixin
 from src.core.exceptions import PipelineError
@@ -46,7 +46,7 @@ class StageMetrics:
         self.total_processing_time += processing_time
         self.average_processing_time = self.total_processing_time / max(self.processed_items, 1)
         self.memory_usage_mb = max(self.memory_usage_mb, memory_usage)
-        self.last_processed = datetime.utcnow()
+        self.last_processed = datetime.now(timezone.utc)
         
         # Calculate throughput
         if self.total_processing_time > 0:
@@ -57,7 +57,7 @@ class StageMetrics:
         self.failed_items += 1
         self.error_count += 1
         self.last_error = error
-        self.last_processed = datetime.utcnow()
+        self.last_processed = datetime.now(timezone.utc)
     
     def get_success_rate(self) -> float:
         """Get success rate as percentage."""
@@ -89,8 +89,8 @@ class ProcessingContext:
     source_path: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     access_control_tags: List[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -107,7 +107,7 @@ class ProcessingData:
                 setattr(self.context, key, value)
             else:
                 self.context.metadata[key] = value
-        self.context.updated_at = datetime.utcnow()
+        self.context.updated_at = datetime.now(timezone.utc)
 
 
 class PipelineStage(ABC, LoggerMixin):
@@ -202,6 +202,9 @@ class PipelineStage(ABC, LoggerMixin):
                     # Wait before retrying
                     if self.config.retry_delay > 0:
                         await asyncio.sleep(self.config.retry_delay * (2 ** attempt))
+        
+        # This should never be reached, but added for type safety
+        raise PipelineError(f"Stage {self.stage_type.value} processing completed unexpectedly without return")
     
     @abstractmethod
     async def _process_data(self, data: ProcessingData) -> ProcessingData:
@@ -314,7 +317,12 @@ class ParallelPipelineStage(PipelineStage):
             if isinstance(chunk_result, Exception):
                 self.logger.error(f"Chunk processing failed: {chunk_result}")
                 raise PipelineError(f"Batch processing failed: {chunk_result}")
-            results.extend(chunk_result)
+            elif isinstance(chunk_result, list):
+                results.extend(chunk_result)
+            else:
+                # This should not happen, but added for type safety
+                self.logger.error(f"Unexpected chunk result type: {type(chunk_result)}")
+                raise PipelineError(f"Unexpected chunk result type: {type(chunk_result)}")
         
         return results
     
