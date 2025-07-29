@@ -340,9 +340,12 @@ class AdvancedConnectionPool(LoggerMixin):
     def invalidate_pool(self) -> None:
         """Invalidate all connections in pool."""
         try:
-            if self._engine and hasattr(self._engine.pool, 'invalidate'):
-                self._engine.pool.invalidate()
-                self.logger.info(f"Pool '{self.pool_name}' invalidated")
+            if self._engine:
+                # Use engine.dispose() to invalidate and replace the pool
+                self._engine.dispose()
+                # Recreate the engine to get a fresh pool
+                self._setup_pool()
+                self.logger.info(f"Pool '{self.pool_name}' invalidated and recreated")
         except Exception as e:
             self.logger.error(f"Failed to invalidate pool '{self.pool_name}': {e}")
     
