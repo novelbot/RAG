@@ -5,7 +5,7 @@ Base RDB Data Extractor - Abstract base class for database data extraction.
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union, Iterator, AsyncIterator, Tuple
+from typing import Any, Dict, List, Optional, Union, Iterator, AsyncIterator, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -13,17 +13,15 @@ from contextlib import contextmanager
 import json
 import hashlib
 
-from sqlalchemy import text, Table, MetaData, inspect, func
-from sqlalchemy.engine import Connection, Engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text, MetaData
+from sqlalchemy.engine import Engine
 
 from src.core.config import DatabaseConfig
 from src.core.logging import LoggerMixin
 from src.database.base import DatabaseManager
 from src.database.introspection import DatabaseIntrospector
 from .exceptions import (
-    ExtractionError, ExtractionTimeoutError, ExtractionValidationError,
-    ExtractionConnectionError, ExtractionQueryError, ExtractionConfigurationError
+    ExtractionError, ExtractionQueryError, ExtractionConfigurationError
 )
 
 
@@ -246,7 +244,7 @@ class BaseRDBExtractor(ABC, LoggerMixin):
         
         # Create a pool wrapper that implements the required interface for DatabaseIntrospector
         class PoolWrapper:
-            def __init__(self, engine):
+            def __init__(self, engine: Engine):
                 self.engine = engine
             
             @contextmanager
@@ -258,7 +256,7 @@ class BaseRDBExtractor(ABC, LoggerMixin):
                 finally:
                     connection.close()
         
-        self.introspector = DatabaseIntrospector(PoolWrapper(self.db_manager.engine))
+        self.introspector = DatabaseIntrospector(PoolWrapper(self.db_manager.engine))  # type: ignore
         
         # State tracking
         self.extraction_stats = ExtractionStats()
@@ -401,14 +399,59 @@ class BaseRDBExtractor(ABC, LoggerMixin):
             # Use existing introspector
             table_info = self.introspector.get_table_info(table_name, schema)
             
+            # Convert ColumnInfo objects to dictionaries
+            columns_dict = []
+            if table_info.columns:
+                for col in table_info.columns:
+                    columns_dict.append({
+                        "name": col.name,
+                        "type": col.type.value if hasattr(col.type, 'value') else str(col.type),
+                        "nullable": col.nullable,
+                        "default": col.default,
+                        "primary_key": col.primary_key,
+                        "foreign_key": col.foreign_key,
+                        "unique": col.unique,
+                        "indexed": col.indexed,
+                        "autoincrement": col.autoincrement,
+                        "comment": col.comment,
+                        "max_length": col.max_length,
+                        "precision": col.precision,
+                        "scale": col.scale
+                    })
+            
+            # Convert ForeignKeyInfo objects to dictionaries  
+            foreign_keys_dict = []
+            if table_info.foreign_keys:
+                for fk in table_info.foreign_keys:
+                    foreign_keys_dict.append({
+                        "name": fk.name,
+                        "columns": fk.columns,
+                        "referred_table": fk.referred_table,
+                        "referred_columns": fk.referred_columns,
+                        "on_delete": fk.on_delete,
+                        "on_update": fk.on_update
+                    })
+            
+            # Convert IndexInfo objects to dictionaries
+            indexes_dict = []
+            if table_info.indexes:
+                for idx in table_info.indexes:
+                    indexes_dict.append({
+                        "name": idx.name,
+                        "columns": idx.columns,
+                        "unique": idx.unique,
+                        "type": idx.type,
+                        "comment": idx.comment
+                    })
+            
             # Convert to our metadata format
             metadata = TableMetadata(
                 name=table_name,
                 schema=schema,
-                columns=table_info.columns or [],
+                columns=columns_dict,
                 primary_keys=table_info.primary_keys or [],
-                foreign_keys=table_info.foreign_keys or [],
-                indexes=table_info.indexes or [],
+                foreign_keys=foreign_keys_dict,
+                indexes=indexes_dict,
                 row_count=self.get_row_count(table_name, schema)
             )
             
@@ -553,8 +596,16 @@ class BaseRDBExtractor(ABC, LoggerMixin):
         if not data or not self.config.incremental_column:
             return
         
-        # Get the latest value from the incremental column
-        latest_value = max(row.get(self.config.incremental_column) for row in data)
+        # Get the latest value from the incremental column (filter out None values)
+        incremental_values = []
+        for row in data:
+            value = row.get(self.config.incremental_column)
+            if value is not None:
+                incremental_values.append(value)
+        
+        if not incremental_values:
+            return
+        latest_value = max(incremental_values)
         
         # Create or update incremental state
         state = IncrementalState(
@@ -598,6 +649,6 @@ class BaseRDBExtractor(ABC, LoggerMixin):
         """Context manager entry."""
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
         """Context manager exit."""
         self.close()

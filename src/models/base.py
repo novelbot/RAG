@@ -3,7 +3,7 @@ Base models and schemas for the RAG server application.
 """
 
 from typing import Optional, Any, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from enum import Enum
 import uuid

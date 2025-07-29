@@ -210,3 +210,10 @@ class StorageError(RAGException):
     
     def __init__(self, message: str, details: Optional[Any] = None):
         super().__init__(message, 500, details)
+
+
+class RetrievalError(RAGException):
+    """Retrieval related errors"""
+    
+    def __init__(self, message: str, details: Optional[Any] = None):
+        super().__init__(message, 500, details)

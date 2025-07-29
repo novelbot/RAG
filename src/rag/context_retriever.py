@@ -309,6 +309,10 @@ class ContextRetriever(LoggerMixin):
         # Build filter expression
         filter_expr = self._build_filter_expression(custom_filters)
         
+        # Validate embedding
+        if query_result.embedding is None:
+            raise RetrievalError("Query embedding is required for vector search")
+        
         # Create search request
         search_request = VectorSearchRequest(
             query_vectors=[query_result.embedding.tolist()],

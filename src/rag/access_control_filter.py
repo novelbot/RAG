@@ -13,7 +13,7 @@ from enum import Enum
 from datetime import datetime, timezone
 
 from src.core.logging import LoggerMixin
-from src.core.exceptions import AccessControlError, InsufficientPermissionsError
+from src.access_control.exceptions import AccessControlError
 from src.access_control.access_control_manager import AccessControlManager, AccessRequest, AccessResponse
 from src.access_control.audit_logger import AuditEventType, AuditSeverity, AuditResult, AuditContext
 from src.rag.context_retriever import RetrievalResult, DocumentContext
