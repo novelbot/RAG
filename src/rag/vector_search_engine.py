@@ -304,20 +304,55 @@ class VectorSearchEngine(LoggerMixin):
         
         results = []
         
-        # Process in batches for memory efficiency
-        batch_size = self.config.batch_size
-        
-        for i in range(0, len(requests), batch_size):
-            batch = requests[i:i + batch_size]
+        try:
+            # Get collection
+            collection = self._get_collection(collection_name)
             
-            # Process batch
-            for request in batch:
+            # Convert to SearchManager queries
+            milvus_queries = [self._create_milvus_query(req) for req in requests]
+            
+            # Use SearchManager's optimized batch search
+            milvus_results = self.search_manager.batch_search(
+                collection=collection,
+                queries=milvus_queries,
+                parallel=True
+            )
+            
+            # Convert results back and apply post-processing
+            for i, milvus_result in enumerate(milvus_results):
+                try:
+                    result = self._convert_milvus_result(milvus_result, requests[i])
+                    
+                    # Apply post-processing
+                    if self.config.enable_result_reranking:
+                        result = self._rerank_results(result, requests[i])
+                    
+                    if self.config.enable_diversity_filtering:
+                        result = self._filter_diverse_results(result, requests[i])
+                    
+                    results.append(result)
+                    
+                except Exception as e:
+                    self.logger.error(f"Batch search item failed: {e}")
+                    # Create error result
+                    error_result = VectorSearchResult(
+                        hits=[],
+                        total_count=0,
+                        search_time=0.0,
+                        search_params={},
+                        metadata={"error": str(e)}
+                    )
+                    results.append(error_result)
+                    
+        except Exception as e:
+            self.logger.error(f"Batch search failed: {e}")
+            # Fallback to sequential processing
+            for request in requests:
                 try:
                     result = self.search(collection_name, request)
                     results.append(result)
                 except Exception as e:
-                    self.logger.error(f"Batch search item failed: {e}")
-                    # Create error result
+                    self.logger.error(f"Fallback batch search item failed: {e}")
                     error_result = VectorSearchResult(
                         hits=[],
                         total_count=0,
@@ -478,13 +513,16 @@ class VectorSearchEngine(LoggerMixin):
         # Build search parameters
         search_params = self._get_search_params(request.search_mode, request.custom_params)
         
+        # Use original output fields
+        output_fields = request.output_fields
+        
         return SearchQuery(
             vectors=request.query_vectors,
             limit=request.limit,
             metric_type=milvus_metric,
             search_params=search_params,
             filter_expr=request.filter_expression,
-            output_fields=request.output_fields,
+            output_fields=output_fields,
             strategy=strategy
         )
     
@@ -563,7 +601,7 @@ class VectorSearchEngine(LoggerMixin):
     def _rerank_results(
         self, 
         result: VectorSearchResult, 
-        request: VectorSearchRequest
+        _request: VectorSearchRequest
     ) -> VectorSearchResult:
         """Apply result reranking for improved relevance."""
         # Simple reranking by score (could be enhanced with ML models)
@@ -577,7 +615,7 @@ class VectorSearchEngine(LoggerMixin):
     def _filter_diverse_results(
         self, 
         result: VectorSearchResult, 
-        request: VectorSearchRequest
+        _request: VectorSearchRequest
     ) -> VectorSearchResult:
         """Filter results for diversity."""
         # Note: request parameter reserved for future query-aware diversity filtering
@@ -612,10 +650,28 @@ class VectorSearchEngine(LoggerMixin):
         return result
     
     def _calculate_hit_similarity(self, hit1: SearchHit, hit2: SearchHit) -> float:
-        """Calculate similarity between two hits (simplified)."""
-        # This is a placeholder - in practice, you might compare
-        # the actual vectors or use other similarity measures
-        return abs(hit1.score - hit2.score)
+        """
+        Calculate similarity between two hits using Milvus pre-calculated scores.
+        
+        Uses the scores from Milvus search results to determine similarity.
+        This leverages Milvus's internal vector similarity calculations.
+        
+        Args:
+            hit1: First search hit
+            hit2: Second search hit
+            
+        Returns:
+            Similarity score between 0.0 and 1.0 (1.0 = most similar)
+        """
+        # Use Milvus pre-calculated scores - similar scores indicate similar vectors
+        score_diff = abs(hit1.score - hit2.score)
+        max_possible_score = max(hit1.score, hit2.score, 1.0)  # Avoid division by zero
+        
+        # Convert to similarity: smaller score difference = higher similarity
+        similarity = 1.0 - min(score_diff / max_possible_score, 1.0)
+        
+        return similarity
+    
     
     def _initialize_search_modes(self) -> Dict[SearchMode, Dict[str, Any]]:
         """Initialize search mode configurations."""
@@ -721,6 +777,62 @@ class VectorSearchEngine(LoggerMixin):
                 "config": {},
                 "stats": {}
             }
+    
+    def hybrid_search(self,
+                     collection_name: str,
+                     vector_query: VectorSearchRequest,
+                     scalar_filters: List[str],
+                     fusion_method: str = "rrf") -> VectorSearchResult:
+        """
+        Perform hybrid search using SearchManager's fusion capabilities.
+        
+        Args:
+            collection_name: Name of the collection to search
+            vector_query: Vector similarity query
+            scalar_filters: List of scalar filter expressions
+            fusion_method: Result fusion method ("rrf" or "weighted")
+            
+        Returns:
+            Fused search results
+        """
+        try:
+            collection = self._get_collection(collection_name)
+            
+            # Convert to Milvus query
+            milvus_query = self._create_milvus_query(vector_query)
+            
+            # Use SearchManager's hybrid search
+            milvus_result = self.search_manager.hybrid_search(
+                collection=collection,
+                vector_query=milvus_query,
+                scalar_filters=scalar_filters,
+                fusion_method=fusion_method
+            )
+            
+            # Convert result
+            result = self._convert_milvus_result(milvus_result, vector_query)
+            
+            # Apply post-processing
+            if self.config.enable_result_reranking:
+                result = self._rerank_results(result, vector_query)
+                
+            result.metadata["hybrid_search"] = True
+            result.metadata["fusion_method"] = fusion_method
+            
+            self.logger.info(f"Hybrid search completed with {fusion_method} fusion")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Hybrid search failed: {e}")
+            raise SearchError(f"Hybrid search failed: {e}")
+    
+    def get_detailed_search_metrics(self, collection_name: str) -> Dict[str, Any]:
+        """Get detailed search metrics from SearchManager."""
+        try:
+            return self.search_manager.get_search_metrics(collection_name)
+        except Exception as e:
+            self.logger.warning(f"Failed to get detailed metrics: {e}")
+            return {"error": str(e)}
 
 
 def create_vector_search_engine(
