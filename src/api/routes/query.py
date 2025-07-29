@@ -9,6 +9,7 @@ import asyncio
 
 from ...auth.dependencies import get_current_user, MockUser
 from ..schemas import QueryRequest, SearchResponse, RAGResponse, BatchSearchResponse, QueryHistoryResponse
+from ...llm.base import LLMProvider
 
 router = APIRouter(prefix="/query", tags=["query"])
 security = HTTPBearer()
@@ -110,7 +111,7 @@ async def ask_question(
         
         # Initialize Ollama provider
         llm_config = LLMConfig(
-            provider=config.llm.provider,
+            provider=LLMProvider(config.llm.provider),
             model=config.llm.model,
             base_url=config.llm.base_url,
             temperature=config.llm.temperature,

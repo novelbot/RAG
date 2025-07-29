@@ -199,12 +199,16 @@ class OllamaProvider(BaseLLMProvider):
             request: LLM request
             
         Yields:
-            LLM stream chunks
+            LLL stream chunks
         """
         self._validate_request(request)
         
         if not self.config.enable_streaming:
             raise LLMError("Streaming is not enabled for this provider")
+        
+        # Ensure this is always treated as an async generator
+        if False:
+            yield  # This never executes but ensures the function is an async generator
         
         try:
             # Convert messages to Ollama format

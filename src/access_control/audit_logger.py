@@ -15,13 +15,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, ForeignKey, Index
-from sqlalchemy.orm import relationship, Session
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from src.core.database import Base
+from src.core.database import Base, get_db
 from src.core.mixins import TimestampMixin
 from src.core.logging import LoggerMixin
-from src.database.base import DatabaseManager
 from .exceptions import AuditLoggingError
 
 
@@ -65,6 +64,7 @@ class AuditEventType(Enum):
     # System events
     SYSTEM_STARTED = "system_started"
     SYSTEM_STOPPED = "system_stopped"
+    SYSTEM_ERROR = "system_error"
     CONFIGURATION_CHANGED = "configuration_changed"
     SECURITY_POLICY_CHANGED = "security_policy_changed"
     
@@ -126,38 +126,38 @@ class AuditLog(Base, TimestampMixin):
     
     __tablename__ = "audit_logs"
     
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     
     # Event identification
-    event_type = Column(String(100), nullable=False, index=True)
-    severity = Column(String(20), default=AuditSeverity.MEDIUM.value, nullable=False)
-    result = Column(String(20), default=AuditResult.SUCCESS.value, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(20), default=AuditSeverity.MEDIUM.value, nullable=False)
+    result: Mapped[str] = mapped_column(String(20), default=AuditResult.SUCCESS.value, nullable=False)
     
     # Event details
-    message = Column(Text, nullable=False)
-    description = Column(Text)
-    resource_type = Column(String(100))
-    resource_id = Column(String(255))
-    resource_name = Column(String(255))
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    resource_type: Mapped[Optional[str]] = mapped_column(String(100))
+    resource_id: Mapped[Optional[str]] = mapped_column(String(255))
+    resource_name: Mapped[Optional[str]] = mapped_column(String(255))
     
     # Context information
-    user_id = Column(Integer, ForeignKey('users.id'))
-    username = Column(String(100))
-    session_id = Column(String(255))
-    ip_address = Column(String(45))  # IPv6 compatible
-    user_agent = Column(Text)
-    request_id = Column(String(255))
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'))
+    username: Mapped[Optional[str]] = mapped_column(String(100))
+    session_id: Mapped[Optional[str]] = mapped_column(String(255))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45))  # IPv6 compatible
+    user_agent: Mapped[Optional[str]] = mapped_column(Text)
+    request_id: Mapped[Optional[str]] = mapped_column(String(255))
     
     # Metadata
-    audit_metadata = Column(Text)  # JSON field for additional data
+    audit_metadata: Mapped[Optional[str]] = mapped_column(Text)  # JSON field for additional data
     
     # Integrity and security
-    checksum = Column(String(64), nullable=False)  # SHA-256 hash
-    previous_log_id = Column(Integer, ForeignKey('audit_logs.id'))
-    chain_hash = Column(String(64))  # Hash chain for integrity
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA-256 hash
+    previous_log_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('audit_logs.id'))
+    chain_hash: Mapped[Optional[str]] = mapped_column(String(64))  # Hash chain for integrity
     
     # Timestamps
-    event_timestamp = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    event_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
     
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
@@ -239,13 +239,8 @@ class AuditLogger(LoggerMixin):
     suspicious activity detection, and comprehensive reporting.
     """
     
-    def __init__(self, db_manager: DatabaseManager):
-        """
-        Initialize audit logger.
-        
-        Args:
-            db_manager: Database manager
-        """
+    def __init__(self, db_manager):
+        """Initialize audit logger."""
         self.db_manager = db_manager
         self._lock = threading.Lock()
         
@@ -270,8 +265,8 @@ class AuditLogger(LoggerMixin):
         
         self.logger.info("Audit Logger initialized successfully")
     
-    def _get_session(self) -> Session:
-        """Get database session."""
+    def _get_session(self):
+        """Get database session context manager."""
         return self.db_manager.get_session()
     
     def _initialize_chain_info(self) -> None:

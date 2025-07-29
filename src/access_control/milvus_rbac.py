@@ -6,18 +6,17 @@ Milvus row-level access control for fine-grained vector database security.
 """
 
 from typing import Dict, List, Any, Optional, Set, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 from src.core.logging import LoggerMixin
-from src.database.base import DatabaseManager
+from src.core.database import get_db
 from src.milvus.client import MilvusClient
 from src.milvus.collection import MilvusCollection
 from src.milvus.rbac import RBACManager, UserContext, AccessRule, Permission, AccessScope
 from src.auth.models import User, Role, Permission as AuthPermission
 from src.auth.rbac import RBACManager as AuthRBACManager
 from .exceptions import MilvusRBACError, InsufficientPermissionsError
-
 
 @dataclass
 class MilvusUserContext:
@@ -58,6 +57,20 @@ class MilvusUserContext:
             is_admin=self.is_superuser,
             additional_metadata=self.metadata
         )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "user_id": self.user_id,
+            "username": self.username,
+            "email": self.email,
+            "is_active": self.is_active,
+            "is_superuser": self.is_superuser,
+            "roles": self.roles,
+            "permissions": self.permissions,
+            "group_ids": self.group_ids,
+            "metadata": self.metadata
+        }
 
 
 class MilvusRBACManager(LoggerMixin):
@@ -70,14 +83,14 @@ class MilvusRBACManager(LoggerMixin):
     
     def __init__(self, 
                  milvus_client: MilvusClient,
-                 db_manager: DatabaseManager,
+                 db_manager,
                  auth_rbac_manager: AuthRBACManager):
         """
         Initialize Milvus RBAC Manager.
         
         Args:
             milvus_client: Milvus client instance
-            db_manager: Database manager for auth queries
+            db_manager: Database manager
             auth_rbac_manager: Authentication RBAC manager
         """
         self.milvus_client = milvus_client
@@ -113,7 +126,7 @@ class MilvusRBACManager(LoggerMixin):
             if not refresh_cache and self._is_cache_valid(user_id):
                 return self._user_context_cache[user_id]
             
-            # Get user from database
+            # Get user from database using proper session context manager
             with self.db_manager.get_session() as session:
                 user = session.query(User).filter(User.id == user_id).first()
                 if not user:
@@ -138,7 +151,7 @@ class MilvusRBACManager(LoggerMixin):
                     group_ids=self._get_user_groups(user_id),
                     metadata={
                         "full_name": user.full_name,
-                        "timezone": user.timezone,
+                        "timezone": getattr(user, 'timezone', None),
                         "last_login": user.last_login.isoformat() if user.last_login else None,
                         "created_at": user.created_at.isoformat()
                     }

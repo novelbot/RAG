@@ -60,6 +60,11 @@ async def upload_document(
     
     # Validate file type
     allowed_extensions = {'.pdf', '.txt', '.docx', '.md'}
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename is required"
+        )
     file_extension = Path(file.filename).suffix.lower()
     
     if file_extension not in allowed_extensions:
@@ -144,6 +149,8 @@ async def upload_batch_documents(
     total_size = 0
     
     for file in files:
+        if not file.filename:
+            continue
         document_id = f"doc_{hash(file.filename + user_id)}"
         results.append({
             "document_id": document_id,

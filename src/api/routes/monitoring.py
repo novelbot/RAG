@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 from ...auth.dependencies import get_current_user, MockUser
 from ...metrics.database import get_metrics_db
+from ...embedding.types import EmbeddingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ async def get_service_status() -> Dict[str, Any]:
     
     # Test LLM Providers (Ollama)
     llm_providers = {}
-    if config.llm.provider.lower() == "ollama":
+    if config.llm.provider == "ollama":
         try:
             llm_start = time.time()
             # Test LLM model
@@ -209,7 +210,7 @@ async def get_service_status() -> Dict[str, Any]:
     
     # Test Embedding Providers (Ollama)
     embedding_providers = {}
-    if config.embedding.provider.lower() == "ollama":
+    if config.embedding.provider == EmbeddingProvider.OLLAMA:
         try:
             embed_start = time.time()
             # Test embedding model

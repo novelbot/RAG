@@ -451,6 +451,10 @@ class LLMManager(LoggerMixin):
         if not provider_type:
             raise LLMError("No available providers")
         
+        # Ensure this is always treated as an async generator
+        if False:
+            yield  # This never executes but ensures the function is an async generator
+        
         provider = self.providers[provider_type]
         
         try:

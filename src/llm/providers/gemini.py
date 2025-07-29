@@ -194,6 +194,10 @@ class GeminiProvider(BaseLLMProvider):
         if not self.config.enable_streaming:
             raise LLMError("Streaming is not enabled for this provider")
         
+        # Ensure this is always treated as an async generator
+        if False:
+            yield  # This never executes but ensures the function is an async generator
+        
         try:
             # Convert messages to Gemini format
             contents = self._convert_messages_to_gemini_format(request.messages)
@@ -214,12 +218,11 @@ class GeminiProvider(BaseLLMProvider):
                 generation_config.stop_sequences = request.stop_sequences
             
             # Make streaming API call
-            stream = await self._async_client.models.generate_content_stream(
+            async for chunk in await self._async_client.models.generate_content_stream(
                 model=request.model or self.config.model,
                 contents=contents,
                 config=generation_config
-            )
-            async for chunk in stream:
+            ):
                 if chunk.text:
                     yield LLMStreamChunk(
                         content=chunk.text,

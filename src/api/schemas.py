@@ -2,9 +2,9 @@
 Pydantic schemas for API request and response validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Union, Literal
-from pydantic import BaseModel, Field, ConfigDict, validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from enum import Enum
 
 
@@ -104,7 +104,7 @@ class RAGResponse(BaseAPISchema):
 
 class BatchSearchRequest(BaseAPISchema):
     """Batch search request schema"""
-    queries: List[str] = Field(..., min_items=1, max_items=10, description="List of search queries")
+    queries: List[str] = Field(..., min_length=1, max_length=10, description="List of search queries")
     max_results: int = Field(5, ge=1, le=50, description="Maximum results per query")
 
 
@@ -385,7 +385,8 @@ class PaginatedResponse(BaseAPISchema):
 
 
 # Validation Helpers
-@validator('*', pre=True, allow_reuse=True)
+@field_validator('*', mode='before')
+@classmethod
 def empty_str_to_none(cls, v):
     """Convert empty strings to None"""
     if v == '':

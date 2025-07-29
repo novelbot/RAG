@@ -13,13 +13,12 @@ import threading
 import json
 
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, ForeignKey, Table
-from sqlalchemy.orm import relationship, Session
+from sqlalchemy.orm import relationship, Session, Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from src.core.database import Base
+from src.core.database import Base, get_db
 from src.core.mixins import TimestampMixin
 from src.core.logging import LoggerMixin
-from src.database.base import DatabaseManager
 from src.auth.models import User, Role
 from src.auth.rbac import RBACManager as AuthRBACManager
 from .exceptions import GroupNotFoundError, AccessControlError
@@ -91,27 +90,27 @@ class Group(Base, TimestampMixin):
     
     __tablename__ = "groups"
     
-    id = Column(Integer, primary_key=True)
-    name = Column(String(100), unique=True, nullable=False, index=True)
-    description = Column(Text)
-    group_type = Column(String(50), default=GroupType.TEAM.value, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    group_type: Mapped[str] = mapped_column(String(50), default=GroupType.TEAM.value, nullable=False)
     
     # Hierarchical group support
-    parent_group_id = Column(Integer, ForeignKey('groups.id'))
+    parent_group_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('groups.id'))
     parent_group = relationship("Group", remote_side=[id], back_populates="child_groups")
     child_groups = relationship("Group", back_populates="parent_group")
     
     # Group settings
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_public = Column(Boolean, default=False, nullable=False)
-    auto_join = Column(Boolean, default=False, nullable=False)
-    max_members = Column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_join: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    max_members: Mapped[Optional[int]] = mapped_column(Integer)
     
     # Metadata
-    group_metadata = Column(Text)  # JSON field for additional metadata
+    group_metadata: Mapped[Optional[str]] = mapped_column(Text)  # JSON field for additional metadata
     
     # Group ownership
-    owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'))
     owner = relationship("User", foreign_keys=[owner_id])
     
     # Relationships
@@ -201,7 +200,7 @@ class GroupManager(LoggerMixin):
     Manages groups, memberships, and hierarchical permission inheritance.
     """
     
-    def __init__(self, db_manager: DatabaseManager, auth_rbac_manager: AuthRBACManager):
+    def __init__(self, db_manager, auth_rbac_manager: AuthRBACManager):
         """
         Initialize group manager.
         
@@ -220,8 +219,8 @@ class GroupManager(LoggerMixin):
         
         self.logger.info("Group Manager initialized successfully")
     
-    def _get_session(self) -> Session:
-        """Get database session."""
+    def _get_session(self):
+        """Get database session context manager."""
         return self.db_manager.get_session()
     
     def _is_cache_valid(self, group_id: int) -> bool:
@@ -247,7 +246,7 @@ class GroupManager(LoggerMixin):
                     name: str,
                     description: Optional[str] = None,
                     group_type: GroupType = GroupType.TEAM,
-                    owner_id: int = None,
+                    owner_id: Optional[int] = None,
                     parent_group_id: Optional[int] = None,
                     is_public: bool = False,
                     auto_join: bool = False,
@@ -412,12 +411,12 @@ class GroupManager(LoggerMixin):
                 else:
                     # Check group capacity
                     if group.max_members:
-                        current_members = session.execute(
+                        current_members = len(session.execute(
                             group_users.select().where(
                                 (group_users.c.group_id == group_id) &
                                 (group_users.c.status == MembershipStatus.ACTIVE.value)
                             )
-                        ).rowcount
+                        ).fetchall())
                         
                         if current_members >= group.max_members:
                             raise AccessControlError(f"Group {group_id} has reached maximum capacity")
@@ -772,10 +771,10 @@ class GroupManager(LoggerMixin):
                     group_types[group_type.value] = count
                 
                 # Count memberships
-                total_memberships = session.execute(group_users.select()).rowcount
-                active_memberships = session.execute(
+                total_memberships = len(session.execute(group_users.select()).fetchall())
+                active_memberships = len(session.execute(
                     group_users.select().where(group_users.c.status == MembershipStatus.ACTIVE.value)
-                ).rowcount
+                ).fetchall())
                 
                 return {
                     "total_groups": total_groups,

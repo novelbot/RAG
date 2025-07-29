@@ -58,13 +58,17 @@ async def create_user(
             id=new_user.id,
             username=new_user.username,
             email=new_user.email,
+            full_name=getattr(new_user, 'full_name', None),
             role=new_user.role,
             department=getattr(new_user, 'department', None),
-            created_at=new_user.created_at,
-            updated_at=getattr(new_user, 'updated_at', new_user.created_at),
             is_active=new_user.is_active,
+            timezone=getattr(new_user, 'timezone', 'UTC'),
+            bio=getattr(new_user, 'bio', None),
+            avatar_url=getattr(new_user, 'avatar_url', None),
             is_superuser=getattr(new_user, 'is_superuser', False),
-            is_verified=getattr(new_user, 'is_verified', True)
+            is_verified=getattr(new_user, 'is_verified', True),
+            created_at=new_user.created_at,
+            updated_at=getattr(new_user, 'updated_at', new_user.created_at)
         )
         
     except HTTPException:
@@ -95,13 +99,17 @@ async def list_users(
                 id=user.id,
                 username=user.username,
                 email=user.email,
+                full_name=getattr(user, 'full_name', None),
                 role=user.role,
                 department=getattr(user, 'department', None),
-                created_at=user.created_at,
-                updated_at=getattr(user, 'updated_at', user.created_at),
                 is_active=user.is_active,
+                timezone=getattr(user, 'timezone', 'UTC'),
+                bio=getattr(user, 'bio', None),
+                avatar_url=getattr(user, 'avatar_url', None),
                 is_superuser=getattr(user, 'is_superuser', False),
-                is_verified=getattr(user, 'is_verified', True)
+                is_verified=getattr(user, 'is_verified', True),
+                created_at=user.created_at,
+                updated_at=getattr(user, 'updated_at', user.created_at)
             )
             for user in users
         ]
@@ -135,7 +143,12 @@ async def update_user(
             )
         
         # Update user
-        updated_user = user_manager.update_user(user_id, **user_update.dict(exclude_unset=True))
+        updated_user = user_manager.update_user(user_id, **user_update.model_dump(exclude_unset=True))
+        if not updated_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
         
         logger.info(f"User {user.username} updated by admin {current_user.username}")
         
@@ -143,13 +156,17 @@ async def update_user(
             id=updated_user.id,
             username=updated_user.username,
             email=updated_user.email,
+            full_name=getattr(updated_user, 'full_name', None),
             role=updated_user.role,
             department=getattr(updated_user, 'department', None),
-            created_at=updated_user.created_at,
-            updated_at=getattr(updated_user, 'updated_at', updated_user.created_at),
             is_active=updated_user.is_active,
+            timezone=getattr(updated_user, 'timezone', 'UTC'),
+            bio=getattr(updated_user, 'bio', None),
+            avatar_url=getattr(updated_user, 'avatar_url', None),
             is_superuser=getattr(updated_user, 'is_superuser', False),
-            is_verified=getattr(updated_user, 'is_verified', True)
+            is_verified=getattr(updated_user, 'is_verified', True),
+            created_at=updated_user.created_at,
+            updated_at=getattr(updated_user, 'updated_at', updated_user.created_at)
         )
         
     except HTTPException:
@@ -232,13 +249,17 @@ async def get_user(
             id=user.id,
             username=user.username,
             email=user.email,
+            full_name=getattr(user, 'full_name', None),
             role=user.role,
             department=getattr(user, 'department', None),
-            created_at=user.created_at,
-            updated_at=getattr(user, 'updated_at', user.created_at),
             is_active=user.is_active,
+            timezone=getattr(user, 'timezone', 'UTC'),
+            bio=getattr(user, 'bio', None),
+            avatar_url=getattr(user, 'avatar_url', None),
             is_superuser=getattr(user, 'is_superuser', False),
-            is_verified=getattr(user, 'is_verified', True)
+            is_verified=getattr(user, 'is_verified', True),
+            created_at=user.created_at,
+            updated_at=getattr(user, 'updated_at', user.created_at)
         )
         
     except HTTPException:

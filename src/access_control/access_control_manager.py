@@ -234,12 +234,12 @@ class AccessControlManager(LoggerMixin):
             if self.enable_audit_logging:
                 self.audit_logger.log_event(
                     event_type=AuditEventType.RESOURCE_ACCESSED,
-                    message=f"Vector search initiated on collection {collection.name}",
+                    message=f"Vector search initiated on collection {collection.collection_name}",
                     context=AuditContext(user_id=user_id),
                     severity=AuditSeverity.LOW,
                     result=AuditResult.SUCCESS,
                     resource_type="collection",
-                    resource_id=collection.name
+                    resource_id=collection.collection_name
                 )
             
             # Perform search with RBAC
@@ -267,7 +267,7 @@ class AccessControlManager(LoggerMixin):
                     severity=AuditSeverity.MEDIUM,
                     result=AuditResult.FAILURE,
                     resource_type="collection",
-                    resource_id=collection.name
+                    resource_id=collection.collection_name
                 )
             
             raise AccessControlError(f"Access-controlled search failed: {e}")

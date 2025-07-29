@@ -189,6 +189,10 @@ class ClaudeProvider(BaseLLMProvider):
         if not self.config.enable_streaming:
             raise LLMError("Streaming is not enabled for this provider")
         
+        # Ensure this is always treated as an async generator
+        if False:
+            yield  # This never executes but ensures the function is an async generator
+        
         try:
             # Convert messages to Claude format
             messages = self._convert_messages_to_claude_format(request.messages)

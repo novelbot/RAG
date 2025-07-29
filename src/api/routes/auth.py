@@ -3,7 +3,7 @@ Authentication API routes for user login, logout, and token management.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict, Any
 import asyncio
 
@@ -87,8 +87,8 @@ async def register(request: RegisterRequest) -> RegisterResponse:
     user_data = auth_manager.create_user(
         username=request.username,
         password=request.password,
-        email=request.email,
-        role=request.role
+        email=request.email or f"{request.username}@example.com",
+        role=request.role or "user"
     )
     
     if user_data:
@@ -105,7 +105,7 @@ async def register(request: RegisterRequest) -> RegisterResponse:
 
 
 @router.post("/logout")
-async def logout(token: str = Depends(security)) -> Dict[str, str]:
+async def logout(token: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, str]:
     """
     Logout user and invalidate token.
     
@@ -165,7 +165,7 @@ async def refresh_token(refresh_token: str) -> TokenResponse:
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(token: str = Depends(security)) -> UserResponse:
+async def get_current_user(token: HTTPAuthorizationCredentials = Depends(security)) -> UserResponse:
     """
     Get current authenticated user information.
     
@@ -197,39 +197,3 @@ async def get_current_user(token: str = Depends(security)) -> UserResponse:
     )
 
 
-@router.post("/register", response_model=UserResponse)
-async def register(request: LoginRequest) -> UserResponse:
-    """
-    Register new user account.
-    
-    Args:
-        request: Registration credentials containing username and password
-        
-    Returns:
-        UserResponse: Created user information
-        
-    Raises:
-        HTTPException: 400 if user already exists
-    """
-    # 실제 사용자 생성
-    email = f"{request.username}@example.com"
-    success = auth_manager.create_user(
-        username=request.username,
-        password=request.password,
-        email=email,
-        role="user"
-    )
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists"
-        )
-    
-    return UserResponse(
-        id="new_user_id",  # SQLite에서 새 ID 가져올 수 있지만 간단히 처리
-        username=request.username,
-        email=email,
-        roles=["user"],
-        is_active=True
-    )
