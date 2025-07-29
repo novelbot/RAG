@@ -316,7 +316,7 @@ class RAGCollectionSchema(LoggerMixin):
             # Create collection schema
             schema = CollectionSchema(
                 fields=field_schemas,
-                description=self.config.description,
+                description=self.config.description or "",
                 enable_dynamic_field=self.config.enable_dynamic_fields
             )
             
@@ -329,6 +329,8 @@ class RAGCollectionSchema(LoggerMixin):
     
     def get_schema_info(self) -> Dict[str, Any]:
         """Get schema information."""
+        primary_field = self.config.get_primary_field()
+        
         return {
             "collection_name": self.collection_name,
             "description": self.description,
@@ -347,7 +349,7 @@ class RAGCollectionSchema(LoggerMixin):
                 }
                 for field in self.config.fields
             ],
-            "primary_field": self.config.get_primary_field().name if self.config.get_primary_field() else None,
+            "primary_field": primary_field.name if primary_field is not None else None,
             "vector_fields": [field.name for field in self.config.get_vector_fields()],
             "access_control_fields": ["user_id", "group_ids", "permissions"],
             "consistency_level": self.config.consistency_level,

@@ -4,7 +4,10 @@ Milvus collection management and vector operations.
 
 import time
 import uuid
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any, Optional, Union, Tuple, TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from pymilvus import SearchResult as PyMilvusSearchResult
 from dataclasses import dataclass, field
 from datetime import datetime
 import threading
@@ -348,7 +351,7 @@ class MilvusCollection(LoggerMixin):
                 output_fields = ["id", "content", "metadata", "created_at"]
             
             # Perform search
-            results = self._collection.search(
+            search_response = self._collection.search(
                 data=query_vectors,
                 anns_field="vector",
                 param=search_params,
@@ -358,24 +361,37 @@ class MilvusCollection(LoggerMixin):
                 partition_names=partition_names
             )
             
+            # Handle both SearchFuture and direct result cases
+            pymilvus_results: Any
+            try:
+                # Try to call result() method (for SearchFuture)
+                pymilvus_results = cast(Any, search_response).result()
+            except AttributeError:
+                # No result() method, so it's already the result object
+                pymilvus_results = search_response
+            
             # Convert results to standard format
             hits = []
-            for result in results:
-                for hit in result:
-                    hit_data = {
-                        "id": hit.id,
-                        "distance": hit.distance,
-                        "score": 1.0 / (1.0 + hit.distance),  # Convert distance to similarity score
-                        "entity": {}
-                    }
-                    
-                    # Add entity fields
-                    if hasattr(hit, 'entity'):
-                        for field in output_fields:
-                            if hasattr(hit.entity, field):
-                                hit_data["entity"][field] = getattr(hit.entity, field)
-                    
-                    hits.append(hit_data)
+            # Ensure we can iterate over the results
+            if hasattr(pymilvus_results, '__iter__'):
+                for result in pymilvus_results:
+                    for hit in result:
+                        hit_data = {
+                            "id": hit.id,
+                            "distance": hit.distance,
+                            "score": 1.0 / (1.0 + hit.distance),  # Convert distance to similarity score
+                            "entity": {}
+                        }
+                        
+                        # Add entity fields
+                        if hasattr(hit, 'entity'):
+                            for field in output_fields:
+                                if hasattr(hit.entity, field):
+                                    hit_data["entity"][field] = getattr(hit.entity, field)
+                        
+                        hits.append(hit_data)
+            else:
+                self.logger.warning("Search results are not iterable, returning empty results")
             
             query_time = time.time() - start_time
             search_result = SearchResult(
@@ -417,18 +433,28 @@ class MilvusCollection(LoggerMixin):
             # Perform deletion
             if partition_name:
                 partition = self._collection.partition(partition_name)
-                result = partition.delete(expr)
+                delete_response = partition.delete(expr)
             else:
-                result = self._collection.delete(expr)
+                delete_response = self._collection.delete(expr)
+            
+            # Handle both MutationFuture and direct result cases
+            result: Any
+            try:
+                # Try to call result() method (for MutationFuture)
+                result = cast(Any, delete_response).result()
+            except AttributeError:
+                # No result() method, so it's already the result object
+                result = delete_response
             
             delete_time = time.time() - start_time
             delete_result = DeleteResult(
-                delete_count=result.delete_count,
-                timestamp=result.timestamp,
+                delete_count=getattr(result, 'delete_count', 0),
+                timestamp=getattr(result, 'timestamp', int(time.time() * 1000)),
                 delete_time=delete_time
             )
             
-            self.logger.info(f"Deleted {result.delete_count} entities in {delete_time:.3f}s")
+            delete_count = getattr(result, 'delete_count', 0)
+            self.logger.info(f"Deleted {delete_count} entities in {delete_time:.3f}s")
             return delete_result
             
         except Exception as e:
@@ -707,6 +733,7 @@ class MilvusCollection(LoggerMixin):
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
+        del exc_type, exc_val, exc_tb  # Unused parameters
         if self._is_loaded:
             self.release()
 

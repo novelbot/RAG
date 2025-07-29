@@ -39,7 +39,8 @@ def prompt_for_input(message: str, default: Optional[str] = None, password: bool
     Returns:
         User input
     """
-    return Prompt.ask(message, default=default, password=password, console=console)
+    result = Prompt.ask(message, default=default, password=password, console=console)
+    return result or ""
 
 
 def create_progress_bar(description: str = "Processing") -> Progress:

@@ -7,12 +7,8 @@ import time
 from typing import Dict, List, Any, Optional, AsyncIterator, Iterator
 import json
 
-try:
-    from google import genai
-    from google.genai import types
-except ImportError:
-    genai = None
-    types = None
+from google import genai
+from google.genai import types
 
 from src.llm.base import (
     BaseLLMProvider, LLMRequest, LLMResponse, LLMStreamChunk, 
@@ -39,8 +35,6 @@ class GeminiProvider(BaseLLMProvider):
         Args:
             config: Provider configuration
         """
-        if genai is None:
-            raise ImportError("Google GenAI SDK not installed. Install with: pip install google-genai")
         super().__init__(config)
         
         # Default models if not specified
@@ -220,11 +214,12 @@ class GeminiProvider(BaseLLMProvider):
                 generation_config.stop_sequences = request.stop_sequences
             
             # Make streaming API call
-            async for chunk in await self._async_client.models.generate_content_stream(
+            stream = self._async_client.models.generate_content_stream(
                 model=request.model or self.config.model,
                 contents=contents,
                 config=generation_config
-            ):
+            )
+            async for chunk in stream:
                 if chunk.text:
                     yield LLMStreamChunk(
                         content=chunk.text,

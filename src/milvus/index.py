@@ -224,6 +224,7 @@ class IndexManager(LoggerMixin):
                     collection: MilvusCollection,
                     config_name: Optional[str] = None,
                     index_config: Optional[IndexConfig] = None,
+                    index_name: Optional[str] = None,
                     wait_for_completion: bool = True,
                     timeout: Optional[float] = None) -> Dict[str, Any]:
         """
@@ -233,6 +234,7 @@ class IndexManager(LoggerMixin):
             collection: Milvus collection
             config_name: Name of predefined configuration
             index_config: Custom index configuration
+            index_name: Optional name for the index
             wait_for_completion: Wait for index building to complete
             timeout: Build timeout in seconds
             
@@ -258,10 +260,22 @@ class IndexManager(LoggerMixin):
             # Create index with performance monitoring
             start_time = time.time()
             
-            collection._collection.create_index(
-                field_name=config.field_name,
-                index_params=config.to_dict()
-            )
+            # Prepare create_index parameters
+            create_params = {
+                "field_name": config.field_name,
+                "index_params": config.to_dict()
+            }
+            
+            if index_name:
+                create_params["index_name"] = index_name
+            
+            if timeout:
+                create_params["timeout"] = timeout
+            
+            if not collection._collection:
+                raise IndexError("Collection not initialized")
+            
+            collection._collection.create_index(**create_params)
             
             # Wait for index building completion if requested
             if wait_for_completion:
@@ -369,7 +383,13 @@ class IndexManager(LoggerMixin):
                 collection.release()
                 self.logger.info("Released collection for index drop")
             
-            collection._collection.drop_index(field_name)
+            if not collection._collection:
+                raise IndexError("Collection not initialized")
+            
+            # Call drop_index method with proper type checking
+            milvus_collection = collection._collection
+            # Type ignore for PyMilvus method signature compatibility
+            milvus_collection.drop_index(field_name)  # type: ignore
             
             drop_time = time.time() - start_time
             
@@ -399,6 +419,9 @@ class IndexManager(LoggerMixin):
         try:
             indexes = []
             
+            if not collection._collection:
+                raise IndexError("Collection not initialized")
+                
             for index in collection._collection.indexes:
                 index_info = {
                     "field_name": index.field_name,
@@ -430,7 +453,16 @@ class IndexManager(LoggerMixin):
             True if field has index
         """
         try:
-            return collection._collection.has_index(field_name)
+            if not collection._collection:
+                raise IndexError("Collection not initialized")
+                
+            # Call has_index method with proper type checking
+            milvus_collection = collection._collection
+            if hasattr(milvus_collection, 'has_index'):
+                # Type ignore for PyMilvus method signature compatibility
+                return milvus_collection.has_index(field_name)  # type: ignore
+            else:
+                raise IndexError(f"has_index method not available on collection")
             
         except Exception as e:
             self.logger.error(f"Failed to check index existence: {e}")
@@ -546,7 +578,7 @@ class IndexManager(LoggerMixin):
             latencies = []
             throughputs = []
             
-            for i in range(iterations):
+            for _ in range(iterations):
                 start_time = time.time()
                 
                 result = collection.search(
@@ -650,6 +682,10 @@ class IndexManager(LoggerMixin):
         Returns:
             Recommended index type and parameters
         """
+        # Validate vector dimension (future use for dimension-specific optimizations)
+        if vector_dim <= 0:
+            raise ValueError("Vector dimension must be positive")
+            
         # Decision matrix based on collection characteristics
         if collection_size < 10000:
             if accuracy_requirement == "high":
@@ -830,6 +866,10 @@ def get_recommended_config(collection_size: int,
     Returns:
         Recommended index configuration
     """
+    # Validate inputs
+    if vector_dim <= 0:
+        raise ValueError("Vector dimension must be positive")
+        
     if performance_priority == "accuracy":
         return IndexConfig(
             index_type=IndexType.FLAT,

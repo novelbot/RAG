@@ -250,7 +250,7 @@ class LLMManager(LoggerMixin):
         # Check if we've exceeded the limit
         return len(self.request_counts[provider_type]) >= config.max_requests_per_minute
     
-    def _round_robin_select(self, providers: List[LLMProvider]) -> LLMProvider:
+    def _round_robin_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
         """Round-robin provider selection."""
         if not providers:
             return None
@@ -259,12 +259,17 @@ class LLMManager(LoggerMixin):
         self.round_robin_index += 1
         return provider
     
-    def _random_select(self, providers: List[LLMProvider]) -> LLMProvider:
+    def _random_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
         """Random provider selection."""
+        if not providers:
+            return None
         return random.choice(providers)
     
-    def _least_used_select(self, providers: List[LLMProvider]) -> LLMProvider:
+    def _least_used_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
         """Select provider with least usage."""
+        if not providers:
+            return None
+            
         min_requests = float('inf')
         selected_provider = None
         
@@ -276,8 +281,11 @@ class LLMManager(LoggerMixin):
         
         return selected_provider or providers[0]
     
-    def _fastest_response_select(self, providers: List[LLMProvider]) -> LLMProvider:
+    def _fastest_response_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
         """Select provider with fastest average response time."""
+        if not providers:
+            return None
+            
         min_response_time = float('inf')
         selected_provider = None
         
@@ -289,8 +297,11 @@ class LLMManager(LoggerMixin):
         
         return selected_provider or providers[0]
     
-    def _health_based_select(self, providers: List[LLMProvider]) -> LLMProvider:
+    def _health_based_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
         """Select provider based on health score."""
+        if not providers:
+            return None
+            
         best_score = -1
         selected_provider = None
         

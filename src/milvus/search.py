@@ -249,11 +249,14 @@ class SearchManager(LoggerMixin):
         
         # Get index information
         try:
-            indexes = collection._collection.indexes
-            if indexes:
-                index_type = IndexType(indexes[0].params.get("index_type", "FLAT"))
-            else:
+            if not collection._collection:
                 index_type = IndexType.FLAT
+            else:
+                indexes = collection._collection.indexes
+                if indexes:
+                    index_type = IndexType(indexes[0].params.get("index_type", "FLAT"))
+                else:
+                    index_type = IndexType.FLAT
         except:
             index_type = IndexType.FLAT
         

@@ -2,19 +2,16 @@
 Ollama LLM Provider implementation.
 """
 
-import asyncio
 import time
-from typing import Dict, List, Any, Optional, AsyncIterator, Iterator
-import json
+from typing import Dict, List, Any, AsyncIterator, Iterator
 
-import ollama
 from ollama import Client, AsyncClient, ChatResponse, ResponseError
 
 from src.llm.base import (
     BaseLLMProvider, LLMRequest, LLMResponse, LLMStreamChunk, 
-    LLMConfig, LLMMessage, LLMRole, LLMProvider, LLMUsage
+    LLMConfig, LLMMessage, LLMProvider, LLMUsage
 )
-from src.core.exceptions import LLMError, RateLimitError, TokenLimitError
+from src.core.exceptions import LLMError, RateLimitError
 
 
 class OllamaProvider(BaseLLMProvider):
@@ -45,7 +42,7 @@ class OllamaProvider(BaseLLMProvider):
     
     def _initialize_clients(self) -> None:
         """Initialize Ollama sync and async clients."""
-        client_kwargs = {
+        client_kwargs: Dict[str, Any] = {
             "host": self.config.base_url or "http://localhost:11434",
         }
         
@@ -241,7 +238,7 @@ class OllamaProvider(BaseLLMProvider):
                 params["options"] = options
             
             # Make streaming API call
-            async for chunk in await self._async_client.chat(**params):
+            async for chunk in self._async_client.chat(**params):
                 if chunk.get("message", {}).get("content"):
                     yield LLMStreamChunk(
                         content=chunk["message"]["content"],
@@ -366,7 +363,7 @@ class OllamaProvider(BaseLLMProvider):
             self.logger.error(f"Ollama sync streaming failed: {e}")
             raise LLMError(f"Ollama streaming API error: {e}")
     
-    async def count_tokens_async(self, messages: List[LLMMessage], model: str) -> int:
+    async def count_tokens_async(self, messages: List[LLMMessage], _model: str) -> int:
         """
         Count tokens in messages asynchronously.
         
@@ -388,7 +385,7 @@ class OllamaProvider(BaseLLMProvider):
             total_chars = sum(len(msg.content) for msg in messages)
             return total_chars // 4  # Rough approximation: 4 chars per token
     
-    def count_tokens(self, messages: List[LLMMessage], model: str) -> int:
+    def count_tokens(self, messages: List[LLMMessage], _model: str) -> int:
         """
         Count tokens in messages synchronously.
         
@@ -493,17 +490,19 @@ class OllamaProvider(BaseLLMProvider):
         # Extract content from response
         content = ""
         if hasattr(response, 'message') and response.message:
-            content = response.message.content
+            content = response.message.content or ""
         elif isinstance(response, dict) and 'message' in response:
-            content = response['message'].get('content', '')
+            content = response['message'].get('content', '') or ""
         
         # Extract usage information if available
         usage = None
         if hasattr(response, 'prompt_eval_count') and hasattr(response, 'eval_count'):
+            prompt_tokens = response.prompt_eval_count or 0
+            completion_tokens = response.eval_count or 0
             usage = LLMUsage(
-                prompt_tokens=response.prompt_eval_count,
-                completion_tokens=response.eval_count,
-                total_tokens=response.prompt_eval_count + response.eval_count
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens
             )
         elif isinstance(response, dict):
             if 'prompt_eval_count' in response and 'eval_count' in response:
