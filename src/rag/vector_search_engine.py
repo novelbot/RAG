@@ -7,17 +7,12 @@ including configurable search parameters, distance metrics, and optimized search
 
 import time
 import asyncio
-import hashlib
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any, Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
-import json
-
-import numpy as np
 
 from src.core.logging import LoggerMixin
-from src.core.exceptions import SearchError, ConfigurationError
+from src.core.exceptions import SearchError
 from src.milvus.client import MilvusClient
 from src.milvus.collection import MilvusCollection
 from src.milvus.search import SearchManager, SearchQuery, SearchStrategy
@@ -135,7 +130,7 @@ class VectorSearchResult:
             flat_hits.extend(hit_list)
         return flat_hits
     
-    def get_top_hits(self, k: int = None) -> List[SearchHit]:
+    def get_top_hits(self, k: Optional[int] = None) -> List[SearchHit]:
         """Get top k hits across all queries."""
         all_hits = self.get_flat_hits()
         all_hits.sort(key=lambda h: h.score, reverse=True)
@@ -385,9 +380,9 @@ class VectorSearchEngine(LoggerMixin):
         self,
         collection_name: str,
         query_vector: List[float],
-        limit: int = None,
-        threshold: float = None,
-        filter_expr: str = None,
+        limit: Optional[int] = None,
+        threshold: Optional[float] = None,
+        filter_expr: Optional[str] = None,
         **kwargs
     ) -> List[SearchHit]:
         """
@@ -437,7 +432,25 @@ class VectorSearchEngine(LoggerMixin):
     def _get_collection(self, collection_name: str) -> MilvusCollection:
         """Get Milvus collection instance."""
         try:
-            return self.milvus_client.get_collection(collection_name)
+            # For now, we need to create a proper MilvusCollection wrapper
+            # This is a temporary solution - ideally MilvusClient should provide this
+            from src.milvus.schema import RAGCollectionSchema
+            
+            # Create a minimal schema for existing collection
+            # TODO: This should be retrieved from the actual collection metadata
+            schema = RAGCollectionSchema(
+                collection_name=collection_name,
+                vector_dim=768,  # Default dimension - should be retrieved from collection
+                description=f"Collection {collection_name}"
+            )
+            
+            # Create MilvusCollection wrapper
+            milvus_collection = MilvusCollection(
+                client=self.milvus_client,
+                schema=schema
+            )
+            
+            return milvus_collection
         except Exception as e:
             raise SearchError(f"Failed to get collection '{collection_name}': {e}")
     
@@ -554,6 +567,7 @@ class VectorSearchEngine(LoggerMixin):
     ) -> VectorSearchResult:
         """Apply result reranking for improved relevance."""
         # Simple reranking by score (could be enhanced with ML models)
+        # Note: request parameter reserved for future ML-based reranking
         for hit_list in result.hits:
             hit_list.sort(key=lambda h: h.score, reverse=True)
         
@@ -566,6 +580,7 @@ class VectorSearchEngine(LoggerMixin):
         request: VectorSearchRequest
     ) -> VectorSearchResult:
         """Filter results for diversity."""
+        # Note: request parameter reserved for future query-aware diversity filtering
         if not self.config.enable_diversity_filtering:
             return result
         

@@ -8,13 +8,11 @@ based on user feedback.
 
 import time
 import math
-import pickle
-from typing import Dict, List, Any, Optional, Tuple, Union, Set
+from typing import Dict, List, Any, Optional, Tuple, Literal, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from collections import defaultdict, Counter
-import json
 import numpy as np
 
 try:
@@ -22,18 +20,16 @@ try:
     from sklearn.metrics.pairwise import cosine_similarity
     from sklearn.preprocessing import StandardScaler
     from sklearn.ensemble import RandomForestRegressor
-    from sklearn.linear_model import RankingSVM
 except ImportError:
     TfidfVectorizer = None
     cosine_similarity = None
     StandardScaler = None
     RandomForestRegressor = None
-    RankingSVM = None
 
 from sentence_transformers import SentenceTransformer
 
 from src.core.logging import LoggerMixin
-from src.core.exceptions import ScoringError, ConfigurationError
+from src.core.exceptions import ScoringError
 from src.rag.query_preprocessor import QueryResult
 from src.rag.query_expander import ExpansionResult
 from src.rag.context_retriever import DocumentContext, RetrievalResult
@@ -93,7 +89,7 @@ class ScoringConfig:
     # TF-IDF parameters
     tfidf_max_features: int = 10000
     tfidf_ngram_range: Tuple[int, int] = (1, 2)
-    tfidf_norm: str = "l2"
+    tfidf_norm: Literal["l1", "l2"] = "l2"
     
     # Semantic similarity parameters
     semantic_model_name: str = "all-MiniLM-L6-v2"
@@ -223,7 +219,7 @@ class BM25Calculator:
         self.epsilon = epsilon
         
         # Document statistics cache
-        self.doc_freqs: Dict[str, int] = {}
+        self.doc_freqs: Dict[str, Dict[str, int]] = {}
         self.doc_lengths: Dict[str, int] = {}
         self.avg_doc_length: float = 0.0
         self.total_docs: int = 0
@@ -232,7 +228,7 @@ class BM25Calculator:
         # IDF cache
         self.idf_cache: Dict[str, float] = {}
     
-    def update_corpus_stats(self, documents: List[str], doc_ids: List[str] = None):
+    def update_corpus_stats(self, documents: List[str], doc_ids: Optional[List[str]] = None):
         """Update corpus statistics for BM25 calculation."""
         if doc_ids is None:
             doc_ids = [f"doc_{i}" for i in range(len(documents))]
@@ -369,7 +365,7 @@ class LearningToRankManager:
     def extract_features(
         self,
         query_result: QueryResult,
-        expansion_result: ExpansionResult,
+        expansion_result: Optional[ExpansionResult],
         context: DocumentContext,
         scores: ScoreComponents
     ) -> np.ndarray:
@@ -446,7 +442,7 @@ class LearningToRankManager:
             # Real implementation would need to store features with feedback
             self.last_training_time = datetime.now(timezone.utc)
             
-        except Exception as e:
+        except Exception:
             # Log error but don't fail scoring
             pass
     
@@ -484,7 +480,7 @@ class RelevanceScorer(LoggerMixin):
     def __init__(
         self,
         config: Optional[ScoringConfig] = None,
-        custom_scorer: Optional[callable] = None
+        custom_scorer: Optional[Callable] = None
     ):
         """
         Initialize Relevance Scorer.
@@ -524,7 +520,7 @@ class RelevanceScorer(LoggerMixin):
             self.tfidf_vectorizer = TfidfVectorizer(
                 max_features=self.config.tfidf_max_features,
                 ngram_range=self.config.tfidf_ngram_range,
-                norm=self.config.tfidf_norm,
+                norm=str(self.config.tfidf_norm),  # Convert Literal to str
                 stop_words='english'
             )
         else:
@@ -724,17 +720,23 @@ class RelevanceScorer(LoggerMixin):
                 return self.tfidf_cache[cache_key]
             
             # Calculate TF-IDF vectors
+            if self.tfidf_vectorizer is None:
+                return 0.0
+            
             tfidf_matrix = self.tfidf_vectorizer.fit_transform(corpus)
+            if tfidf_matrix is None:
+                return 0.0
             
             # Calculate cosine similarity
             if cosine_similarity is not None:
-                similarity = cosine_similarity(
-                    tfidf_matrix[0:1], tfidf_matrix[1:2]
-                )[0][0]
+                # Use slicing which works with sparse matrices
+                query_vec = tfidf_matrix[0:1]
+                doc_vec = tfidf_matrix[1:2]
+                similarity = cosine_similarity(query_vec, doc_vec)[0][0]
             else:
-                # Fallback: simple dot product similarity
-                query_vec = tfidf_matrix[0].toarray()[0]
-                doc_vec = tfidf_matrix[1].toarray()[0]
+                # Fallback: simple dot product similarity using sparse matrix methods
+                query_vec = tfidf_matrix.getrow(0).toarray()[0]
+                doc_vec = tfidf_matrix.getrow(1).toarray()[0]
                 similarity = np.dot(query_vec, doc_vec) / (
                     np.linalg.norm(query_vec) * np.linalg.norm(doc_vec) + 1e-8
                 )
@@ -770,8 +772,14 @@ class RelevanceScorer(LoggerMixin):
                     return cached_score
             
             # Calculate embeddings
+            if self.semantic_model is None:
+                return 0.0
+            
             query_embedding = self.semantic_model.encode([query_text])
             doc_embedding = self.semantic_model.encode([context.content])
+            
+            if query_embedding is None or doc_embedding is None:
+                return 0.0
             
             # Calculate cosine similarity
             if cosine_similarity is not None:
@@ -875,8 +883,10 @@ class RelevanceScorer(LoggerMixin):
             # Extract features for all contexts
             features_list = []
             for context, scores in scored_contexts:
+                # Handle potential None expansion_result
+                safe_expansion_result = expansion_result if expansion_result is not None else None
                 features = self.learning_manager.extract_features(
-                    query_result, expansion_result, context, scores
+                    query_result, safe_expansion_result, context, scores
                 )
                 features_list.append(features)
             
@@ -888,7 +898,13 @@ class RelevanceScorer(LoggerMixin):
             self.logger.warning(f"Learning-to-rank scoring failed: {e}")
             learning_scores = [0.0] * len(scored_contexts)
         
-        return learning_scores.tolist() if hasattr(learning_scores, 'tolist') else learning_scores
+        # Convert to list if needed
+        if isinstance(learning_scores, np.ndarray):
+            return learning_scores.tolist()
+        elif hasattr(learning_scores, 'tolist'):
+            return learning_scores.tolist()
+        else:
+            return list(learning_scores)
     
     def _calculate_final_scores(
         self,
@@ -897,7 +913,7 @@ class RelevanceScorer(LoggerMixin):
         """Calculate final relevance scores."""
         final_scores = []
         
-        for context, scores in scored_contexts:
+        for _, scores in scored_contexts:
             if self.config.use_learning_to_rank and scores.learning_score > 0:
                 # Use learning-to-rank score as primary
                 final_score = 0.7 * scores.learning_score + 0.3 * scores.hybrid_score
@@ -995,7 +1011,7 @@ class RelevanceScorer(LoggerMixin):
             for key in keys_to_remove:
                 del cache[key]
     
-    def _update_scoring_stats(self, scoring_time: float, num_contexts: int):
+    def _update_scoring_stats(self, scoring_time: float, _num_contexts: int):
         """Update scoring statistics."""
         self.scoring_stats["total_scorings"] += 1
         self.scoring_stats["total_scoring_time"] += scoring_time
@@ -1044,7 +1060,7 @@ class RelevanceScorer(LoggerMixin):
 
 def create_relevance_scorer(
     config: Optional[ScoringConfig] = None,
-    custom_scorer: Optional[callable] = None
+    custom_scorer: Optional[Callable] = None
 ) -> RelevanceScorer:
     """
     Create and configure a RelevanceScorer instance.

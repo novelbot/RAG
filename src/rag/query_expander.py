@@ -550,14 +550,16 @@ class QueryExpander(LoggerMixin):
                 # WordNet synonyms
                 try:
                     for syn in wordnet.synsets(term):
-                        for lemma in syn.lemmas():
-                            synonym = lemma.name().replace('_', ' ').lower()
-                            if synonym != term and synonym not in synonyms:
-                                synonyms.append(synonym)
-                                if len(synonyms) >= self.config.wordnet_max_synonyms:
-                                    break
-                        if len(synonyms) >= self.config.wordnet_max_synonyms:
-                            break
+                        if syn is not None:
+                            for lemma in syn.lemmas():
+                                if lemma is not None:
+                                    synonym = lemma.name().replace('_', ' ').lower()
+                                    if synonym != term and synonym not in synonyms:
+                                        synonyms.append(synonym)
+                                        if len(synonyms) >= self.config.wordnet_max_synonyms:
+                                            break
+                            if len(synonyms) >= self.config.wordnet_max_synonyms:
+                                break
                 except Exception:
                     pass
                 
@@ -602,7 +604,7 @@ class QueryExpander(LoggerMixin):
                 similarities = cosine_similarity(term_embeddings, candidate_embeddings)
                 
                 # Find similar terms above threshold
-                for i, term in enumerate(terms):
+                for i, _ in enumerate(terms):
                     for j, candidate in enumerate(candidate_terms):
                         similarity = similarities[i][j]
                         if (similarity >= self.config.min_similarity_threshold and 
@@ -713,7 +715,7 @@ class QueryExpander(LoggerMixin):
     
     def _expand_personalized(
         self, 
-        query: str, 
+        _query: str, 
         user_id: int
     ) -> List[Tuple[str, float]]:
         """Expand based on user's query history and preferences."""
@@ -760,7 +762,9 @@ class QueryExpander(LoggerMixin):
                 # Fit on query and calculate weights
                 self.tfidf_vectorizer.fit([query])
                 feature_names = self.tfidf_vectorizer.get_feature_names_out()
-                tfidf_scores = self.tfidf_vectorizer.transform([query]).toarray()[0]
+                # Transform returns sparse matrix, convert to dense array
+                tfidf_matrix = self.tfidf_vectorizer.transform([query])
+                tfidf_scores = tfidf_matrix.toarray()[0]  # type: ignore[attr-defined]
                 
                 tfidf_dict = dict(zip(feature_names, tfidf_scores))
                 
@@ -932,7 +936,7 @@ class QueryExpander(LoggerMixin):
             for key in keys_to_remove:
                 del cache[key]
     
-    def _update_expansion_stats(self, expansion_time: float, num_terms: int):
+    def _update_expansion_stats(self, expansion_time: float, _num_terms: int):
         """Update expansion statistics."""
         self.expansion_stats["total_expansions"] += 1
         self.expansion_stats["total_expansion_time"] += expansion_time

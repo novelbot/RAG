@@ -217,3 +217,10 @@ class RetrievalError(RAGException):
     
     def __init__(self, message: str, details: Optional[Any] = None):
         super().__init__(message, 500, details)
+
+
+class ScoringError(RAGException):
+    """Scoring related errors"""
+    
+    def __init__(self, message: str, details: Optional[Any] = None):
+        super().__init__(message, 500, details)
