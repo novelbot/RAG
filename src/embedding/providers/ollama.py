@@ -3,16 +3,14 @@ Ollama Embedding Provider implementation.
 """
 
 import time
-import asyncio
-from typing import List, Dict, Any, Optional, cast
-import ollama
+from typing import List, Dict, Any, cast
 from ollama import Client, AsyncClient
 
 from src.embedding.base import (
     BaseEmbeddingProvider, EmbeddingRequest, 
     EmbeddingResponse, EmbeddingUsage, EmbeddingDimension
 )
-from src.embedding.types import EmbeddingConfig, EmbeddingProvider
+from src.embedding.types import EmbeddingConfig
 from src.core.exceptions import EmbeddingError, ConfigurationError
 
 
@@ -109,7 +107,9 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             
             # Apply instruction prompt if model requires it
             is_query = request.metadata.get("is_query", False) if request.metadata else False
-            processed_input = self._apply_instruction_prompt(request.input, model, is_query)
+            # Ensure input is a list (should already be converted in __post_init__)
+            input_list = request.input if isinstance(request.input, list) else [request.input]
+            processed_input = self._apply_instruction_prompt(input_list, model, is_query)
             
             # Ollama embed accepts either single string or list of strings
             response = await self._async_client.embed(
@@ -141,7 +141,9 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             
             # Apply instruction prompt if model requires it
             is_query = request.metadata.get("is_query", False) if request.metadata else False
-            processed_input = self._apply_instruction_prompt(request.input, model, is_query)
+            # Ensure input is a list (should already be converted in __post_init__)
+            input_list = request.input if isinstance(request.input, list) else [request.input]
+            processed_input = self._apply_instruction_prompt(input_list, model, is_query)
             
             # Ollama embed accepts either single string or list of strings
             response = self._client.embed(
@@ -438,13 +440,13 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             self.logger.error(f"Failed to get model info for {model}: {e}")
             return {}
     
-    def get_pricing_info(self, model: str) -> Dict[str, Any]:
+    def get_pricing_info(self, _model: str) -> Dict[str, Any]:
         """Get pricing information for model (free for local models)."""
         return {
             "price_per_1m_tokens": 0.0,
             "note": "Local model - no API costs"
         }
     
-    def estimate_cost(self, num_tokens: int, model: str) -> float:
+    def estimate_cost(self, _num_tokens: int, _model: str) -> float:
         """Estimate cost for embedding generation (always 0 for local models)."""
         return 0.0

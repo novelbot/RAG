@@ -92,7 +92,7 @@ class DocumentContext:
     relevance_score: float = 0.0
     ranking_score: float = 0.0
     source_info: Dict[str, Any] = field(default_factory=dict)
-    retrieval_timestamp: datetime = field(default_factory=datetime.utcnow)
+    retrieval_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Ranking factors
     recency_score: float = 0.0

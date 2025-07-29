@@ -202,7 +202,7 @@ class FeedbackEntry:
     relevance_score: float  # 0.0 to 1.0
     feedback_type: str  # "click", "dwell", "rating", "save"
     user_id: Optional[int] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     context: Dict[str, Any] = field(default_factory=dict)
 
 

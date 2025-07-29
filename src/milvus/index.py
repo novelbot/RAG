@@ -66,7 +66,7 @@ class IndexPerformance:
     search_latency: Optional[float] = None
     search_throughput: Optional[float] = None
     recall_rate: Optional[float] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -76,7 +76,7 @@ class SearchPerformance:
     result_count: int
     search_params: Dict[str, Any]
     index_type: IndexType
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class IndexManager(LoggerMixin):

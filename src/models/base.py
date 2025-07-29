@@ -11,8 +11,8 @@ import uuid
 
 class TimestampMixin(BaseModel):
     """Mixin for models that need timestamp fields"""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class BaseResponse(BaseModel):
@@ -45,7 +45,7 @@ class PaginatedResponse(BaseResponse):
 class HealthResponse(BaseModel):
     """Health check response model"""
     status: str = "healthy"
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     services: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -61,7 +61,7 @@ class ServiceStatus(BaseModel):
     name: str
     status: DatabaseStatus
     message: Optional[str] = None
-    last_check: datetime = Field(default_factory=datetime.utcnow)
+    last_check: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class RAGMode(str, Enum):

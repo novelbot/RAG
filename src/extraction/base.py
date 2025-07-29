@@ -136,7 +136,7 @@ class TableMetadata:
 class ExtractionStats:
     """Statistics for extraction operations."""
     
-    start_time: datetime = field(default_factory=datetime.utcnow)
+    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     end_time: Optional[datetime] = None
     total_rows: int = 0
     processed_rows: int = 0
@@ -178,7 +178,7 @@ class ExtractionResult:
     stats: Optional[ExtractionStats] = None
     errors: List[str] = field(default_factory=list)
     extraction_id: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""

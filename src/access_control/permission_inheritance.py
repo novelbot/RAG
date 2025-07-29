@@ -45,7 +45,7 @@ class PermissionRule:
     user_id: Optional[int] = None
     group_id: Optional[str] = None
     role_name: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: Optional[int] = None
     expires_at: Optional[datetime] = None
     conditions: Dict[str, Any] = field(default_factory=dict)

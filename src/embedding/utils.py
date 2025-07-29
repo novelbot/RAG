@@ -10,7 +10,7 @@ import json
 import hashlib
 from datetime import datetime, timezone
 
-from src.embedding.base import EmbeddingResponse, EmbeddingDimension
+from src.embedding.base import EmbeddingResponse, EmbeddingDimension, EmbeddingUsage
 from src.core.logging import LoggerMixin
 
 
@@ -88,7 +88,7 @@ class EmbeddingOptimizer(LoggerMixin):
             return original_response or EmbeddingResponse(
                 embeddings=embedding_vectors,
                 model="optimized",
-                usage=None,
+                usage=EmbeddingUsage(),
                 dimensions=current_dims
             )
         
@@ -136,7 +136,7 @@ class EmbeddingOptimizer(LoggerMixin):
             optimized_response = EmbeddingResponse(
                 embeddings=reduced_embeddings.tolist(),
                 model="optimized",
-                usage=None,
+                usage=EmbeddingUsage(),
                 dimensions=target_dims,
                 metadata={
                     "optimized": True,
@@ -156,7 +156,7 @@ class EmbeddingOptimizer(LoggerMixin):
         except ImportError:
             raise ImportError("sklearn is required for PCA dimension reduction")
         
-        if self._pca_model is None or self._pca_model.n_components != target_dims:
+        if self._pca_model is None or getattr(self._pca_model, 'n_components_', None) != target_dims:
             self._pca_model = PCA(n_components=target_dims)
             self._pca_model.fit(embeddings)
             
@@ -312,7 +312,7 @@ class EmbeddingOptimizer(LoggerMixin):
         }
     
     def profile_performance(self, embeddings: List[List[float]], 
-                          operations: List[str] = None) -> Dict[str, Any]:
+                          operations: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Profile embedding operations performance.
         
@@ -445,8 +445,8 @@ class EmbeddingCache:
         self.max_size = max_size
         self.ttl = ttl
         self.persist_file = persist_file
-        self.cache = {}
-        self.access_times = {}
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.access_times: Dict[str, float] = {}
         self.stats = {
             "hits": 0,
             "misses": 0,
@@ -510,7 +510,7 @@ class EmbeddingCache:
             return
         
         # Find least recently used key
-        lru_key = min(self.access_times, key=self.access_times.get)
+        lru_key = min(self.access_times.keys(), key=lambda k: self.access_times[k])
         
         # Remove from cache
         del self.cache[lru_key]

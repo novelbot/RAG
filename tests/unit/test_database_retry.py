@@ -434,7 +434,7 @@ class TestCircuitBreaker:
         
         # Mock time passage
         with patch('src.database.retry.datetime') as mock_datetime:
-            mock_datetime.utcnow.return_value = datetime.now(timezone.utc) + timedelta(seconds=10)
+            mock_datetime.now.return_value = datetime.now(timezone.utc) + timedelta(seconds=10)
             
             def success_func():
                 return "success"

@@ -65,8 +65,8 @@ class AccessRule:
     denied_users: List[str] = field(default_factory=list)
     denied_groups: List[str] = field(default_factory=list)
     metadata_conditions: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = True
 
 

@@ -34,7 +34,7 @@ class ValidationResult:
     status: bool
     message: str
     details: Optional[Dict[str, Any]] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""

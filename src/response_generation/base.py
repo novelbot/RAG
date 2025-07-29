@@ -143,7 +143,7 @@ class ResponseRequest:
     user_id: Optional[str] = None
     session_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert request to dictionary."""
@@ -214,8 +214,8 @@ class ResponseResult:
     errors: List[str] = field(default_factory=list)
     
     # Timestamps
-    request_timestamp: datetime = field(default_factory=datetime.utcnow)
-    response_timestamp: datetime = field(default_factory=datetime.utcnow)
+    request_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    response_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def get_quality_score(self, metric: EvaluationMetric) -> Optional[float]:
         """Get score for specific evaluation metric."""
