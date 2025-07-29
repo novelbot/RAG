@@ -223,32 +223,42 @@ class OpenAIProvider(BaseLLMProvider):
             if request.tools and self.config.enable_function_calling:
                 params["tools"] = request.tools
             
-            # Make streaming API call
+            # Make streaming API call using new event-based API
             async with self._async_client.chat.completions.stream(**params) as stream:
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content is not None:
+                async for event in stream:
+                    # Handle content delta events
+                    if event.type == 'content.delta':
                         yield LLMStreamChunk(
-                            content=chunk.choices[0].delta.content,
-                            finish_reason=chunk.choices[0].finish_reason,
-                            metadata={"chunk_id": chunk.id}
+                            content=event.delta,
+                            finish_reason=None,
+                            metadata={"event_type": "content.delta"}
                         )
                     
-                    # Handle final chunk with usage
-                    if chunk.choices and chunk.choices[0].finish_reason:
-                        usage = None
+                    # Handle content done events
+                    elif event.type == 'content.done':
+                        yield LLMStreamChunk(
+                            content="",
+                            finish_reason="stop",
+                            metadata={"event_type": "content.done", "final_chunk": True}
+                        )
+                    
+                    # Handle chunk events (raw chunks) if we need to access usage
+                    elif event.type == 'chunk':
+                        chunk = event.chunk
+                        # Check if this chunk has usage information
                         if hasattr(chunk, 'usage') and chunk.usage:
                             usage = LLMUsage(
                                 prompt_tokens=chunk.usage.prompt_tokens,
                                 completion_tokens=chunk.usage.completion_tokens,
                                 total_tokens=chunk.usage.total_tokens
                             )
-                        
-                        yield LLMStreamChunk(
-                            content="",
-                            finish_reason=chunk.choices[0].finish_reason,
-                            usage=usage,
-                            metadata={"final_chunk": True}
-                        )
+                            
+                            yield LLMStreamChunk(
+                                content="",
+                                finish_reason=None,
+                                usage=usage,
+                                metadata={"event_type": "chunk_usage"}
+                            )
                         
         except Exception as e:
             self.logger.error(f"OpenAI async streaming failed: {e}")
@@ -300,32 +310,42 @@ class OpenAIProvider(BaseLLMProvider):
             if request.tools and self.config.enable_function_calling:
                 params["tools"] = request.tools
             
-            # Make streaming API call
+            # Make streaming API call using new event-based API
             with self._client.chat.completions.stream(**params) as stream:
-                for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content is not None:
+                for event in stream:
+                    # Handle content delta events
+                    if event.type == 'content.delta':
                         yield LLMStreamChunk(
-                            content=chunk.choices[0].delta.content,
-                            finish_reason=chunk.choices[0].finish_reason,
-                            metadata={"chunk_id": chunk.id}
+                            content=event.delta,
+                            finish_reason=None,
+                            metadata={"event_type": "content.delta"}
                         )
                     
-                    # Handle final chunk with usage
-                    if chunk.choices and chunk.choices[0].finish_reason:
-                        usage = None
+                    # Handle content done events
+                    elif event.type == 'content.done':
+                        yield LLMStreamChunk(
+                            content="",
+                            finish_reason="stop",
+                            metadata={"event_type": "content.done", "final_chunk": True}
+                        )
+                    
+                    # Handle chunk events (raw chunks) if we need to access usage
+                    elif event.type == 'chunk':
+                        chunk = event.chunk
+                        # Check if this chunk has usage information
                         if hasattr(chunk, 'usage') and chunk.usage:
                             usage = LLMUsage(
                                 prompt_tokens=chunk.usage.prompt_tokens,
                                 completion_tokens=chunk.usage.completion_tokens,
                                 total_tokens=chunk.usage.total_tokens
                             )
-                        
-                        yield LLMStreamChunk(
-                            content="",
-                            finish_reason=chunk.choices[0].finish_reason,
-                            usage=usage,
-                            metadata={"final_chunk": True}
-                        )
+                            
+                            yield LLMStreamChunk(
+                                content="",
+                                finish_reason=None,
+                                usage=usage,
+                                metadata={"event_type": "chunk_usage"}
+                            )
                         
         except Exception as e:
             self.logger.error(f"OpenAI sync streaming failed: {e}")

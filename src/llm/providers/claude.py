@@ -8,7 +8,8 @@ from typing import Dict, List, Any, Optional, AsyncIterator, Iterator
 import json
 
 from anthropic import Anthropic, AsyncAnthropic
-from anthropic.types import Message, Usage, ContentBlock
+from anthropic.types import Message, Usage, ContentBlock, TextBlock
+from anthropic.types.beta import BetaMessageParam
 from anthropic.lib.streaming import MessageStream
 
 from src.llm.base import (
@@ -335,9 +336,10 @@ class ClaudeProvider(BaseLLMProvider):
             claude_messages = self._convert_messages_to_claude_format(messages)
             
             # Use Claude's count_tokens method
+            # Cast to BetaMessageParam for type compatibility
             response = await self._async_client.beta.messages.count_tokens(
                 model=model or self.config.model,
-                messages=claude_messages
+                messages=claude_messages  # type: ignore[arg-type]
             )
             
             return response.input_tokens
@@ -364,9 +366,10 @@ class ClaudeProvider(BaseLLMProvider):
             claude_messages = self._convert_messages_to_claude_format(messages)
             
             # Use Claude's count_tokens method
+            # Cast to BetaMessageParam for type compatibility
             response = self._client.beta.messages.count_tokens(
                 model=model or self.config.model,
-                messages=claude_messages
+                messages=claude_messages  # type: ignore[arg-type]
             )
             
             return response.input_tokens
@@ -471,8 +474,11 @@ class ClaudeProvider(BaseLLMProvider):
         if response.content:
             # Claude returns content as a list of content blocks
             for block in response.content:
-                if hasattr(block, 'text') and block.text:
+                # Only TextBlock has a text attribute
+                if isinstance(block, TextBlock) and block.text:
                     content += block.text
+                # For other block types, we could add additional handling here if needed
+                # For now, we only extract text content
         
         # Extract usage information
         usage = None

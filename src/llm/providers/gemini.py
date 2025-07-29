@@ -214,7 +214,7 @@ class GeminiProvider(BaseLLMProvider):
                 generation_config.stop_sequences = request.stop_sequences
             
             # Make streaming API call
-            stream = self._async_client.models.generate_content_stream(
+            stream = await self._async_client.models.generate_content_stream(
                 model=request.model or self.config.model,
                 contents=contents,
                 config=generation_config
@@ -230,9 +230,9 @@ class GeminiProvider(BaseLLMProvider):
                 # Handle final chunk with usage info
                 if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
                     usage = LLMUsage(
-                        prompt_tokens=chunk.usage_metadata.prompt_token_count,
-                        completion_tokens=chunk.usage_metadata.candidates_token_count,
-                        total_tokens=chunk.usage_metadata.total_token_count
+                        prompt_tokens=chunk.usage_metadata.prompt_token_count or 0,
+                        completion_tokens=chunk.usage_metadata.candidates_token_count or 0,
+                        total_tokens=chunk.usage_metadata.total_token_count or 0
                     )
                     
                     yield LLMStreamChunk(
@@ -302,9 +302,9 @@ class GeminiProvider(BaseLLMProvider):
                 # Handle final chunk with usage info
                 if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
                     usage = LLMUsage(
-                        prompt_tokens=chunk.usage_metadata.prompt_token_count,
-                        completion_tokens=chunk.usage_metadata.candidates_token_count,
-                        total_tokens=chunk.usage_metadata.total_token_count
+                        prompt_tokens=chunk.usage_metadata.prompt_token_count or 0,
+                        completion_tokens=chunk.usage_metadata.candidates_token_count or 0,
+                        total_tokens=chunk.usage_metadata.total_token_count or 0
                     )
                     
                     yield LLMStreamChunk(
@@ -345,7 +345,7 @@ class GeminiProvider(BaseLLMProvider):
                 contents=contents
             )
             
-            return response.total_tokens
+            return response.total_tokens or 0
                 
         except Exception as e:
             self.logger.error(f"Gemini token counting failed: {e}")
@@ -374,7 +374,7 @@ class GeminiProvider(BaseLLMProvider):
                 contents=contents
             )
             
-            return response.total_tokens
+            return response.total_tokens or 0
                 
         except Exception as e:
             self.logger.error(f"Gemini token counting failed: {e}")
@@ -444,14 +444,33 @@ class GeminiProvider(BaseLLMProvider):
         
         return validation_result
     
-    def _convert_messages_to_gemini_format(self, messages: List[LLMMessage]) -> List[str]:
+    def _convert_messages_to_gemini_format(self, messages: List[LLMMessage]) -> List[Any]:
         """Convert LLM messages to Gemini format."""
         gemini_contents = []
         
         for msg in messages:
-            # Gemini expects content as strings or more complex structures
-            # For now, we'll use simple string content
-            gemini_contents.append(msg.content)
+            # Convert to types.Content format for proper typing
+            if msg.role == LLMRole.USER:
+                content = types.Content(
+                    role='user',
+                    parts=[types.Part.from_text(text=msg.content)]
+                )
+            elif msg.role == LLMRole.ASSISTANT:
+                content = types.Content(
+                    role='model',
+                    parts=[types.Part.from_text(text=msg.content)]
+                )
+            elif msg.role == LLMRole.SYSTEM:
+                # System messages will be handled separately as system_instruction
+                continue
+            else:
+                # Default to user role
+                content = types.Content(
+                    role='user',
+                    parts=[types.Part.from_text(text=msg.content)]
+                )
+            
+            gemini_contents.append(content)
         
         return gemini_contents
     
@@ -474,9 +493,9 @@ class GeminiProvider(BaseLLMProvider):
         usage = None
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
             usage = LLMUsage(
-                prompt_tokens=response.usage_metadata.prompt_token_count,
+                prompt_tokens=response.usage_metadata.prompt_token_count or 0,
                 completion_tokens=response.usage_metadata.candidates_token_count or 0,
-                total_tokens=response.usage_metadata.total_token_count
+                total_tokens=response.usage_metadata.total_token_count or 0
             )
         
         return LLMResponse(

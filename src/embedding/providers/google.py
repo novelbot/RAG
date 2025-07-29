@@ -68,16 +68,20 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
             )
         
         try:
+            # Configure HTTP options
+            if types is not None:
+                http_options = types.HttpOptions(
+                    timeout=int(self.config.timeout)
+                )
+                if self.config.base_url:
+                    http_options.base_url = self.config.base_url
+            else:
+                http_options = None
+            
             client_kwargs = {
                 "api_key": self.config.api_key,
-                "http_options": {
-                    "timeout": self.config.timeout,
-                    "retry_attempts": self.config.max_retries
-                }
+                "http_options": http_options
             }
-            
-            if self.config.base_url:
-                client_kwargs["base_url"] = self.config.base_url
             
             self._client = Client(**client_kwargs)
             self._async_client = Client(**client_kwargs)  # Google client handles both sync/async
@@ -100,7 +104,7 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
                 return await self._process_batched_request_async(request, params)
             
             # Make API call
-            response = await self._async_client.models.embed_content(**params)
+            response = self._async_client.models.embed_content(**params)
             
             # Process response
             result = self._process_response(response, request.model or self.config.model)
@@ -200,7 +204,7 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
             batch_params = params.copy()
             batch_params["contents"] = batch
             
-            response = await self._async_client.models.embed_content(**batch_params)
+            response = self._async_client.models.embed_content(**batch_params)
             batch_result = self._process_response(response, request.model or self.config.model)
             
             all_embeddings.extend(batch_result.embeddings)
@@ -339,9 +343,13 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
                     return False
             
             # Test client initialization
+            if types is not None:
+                http_options = types.HttpOptions(timeout=5)
+            else:
+                http_options = None
             _test_client = Client(
                 api_key=self.config.api_key,
-                http_options={"timeout": 5.0}
+                http_options=http_options
             )
             
             self.logger.info("Google configuration is valid")
