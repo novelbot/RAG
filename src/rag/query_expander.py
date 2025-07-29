@@ -18,20 +18,11 @@ import json
 import hashlib
 
 import numpy as np
-try:
-    import spacy
-    from spacy.tokens import Doc, Token, Span
-except ImportError:
-    spacy = None
-
-try:
-    import nltk
-    from nltk.corpus import wordnet
-    from nltk.corpus import stopwords
-except ImportError:
-    nltk = None
-    wordnet = None
-    stopwords = None
+import spacy
+from spacy.tokens import Doc, Token, Span
+import nltk
+from nltk.corpus import wordnet
+from nltk.corpus import stopwords
 
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -247,9 +238,6 @@ class QueryExpander(LoggerMixin):
         """Initialize NLP components and models."""
         try:
             # Initialize spaCy
-            if spacy is None:
-                raise ConfigurationError("spaCy is required for query expansion")
-            
             try:
                 self.nlp = spacy.load(self.config.language_model.value)
             except OSError:
@@ -257,7 +245,7 @@ class QueryExpander(LoggerMixin):
                 self.nlp = spacy.load("en_core_web_sm")
             
             # Initialize NLTK components
-            if nltk is not None and self.config.enable_synonym_expansion:
+            if self.config.enable_synonym_expansion:
                 try:
                     # Download required NLTK data if not already present
                     nltk.data.find('corpora/wordnet')
@@ -541,7 +529,7 @@ class QueryExpander(LoggerMixin):
     
     def _expand_synonyms(self, terms: List[str]) -> List[Tuple[str, float]]:
         """Expand terms using synonym lookup."""
-        if not self.config.enable_synonym_expansion or wordnet is None:
+        if not self.config.enable_synonym_expansion:
             return []
         
         synonym_terms = []
