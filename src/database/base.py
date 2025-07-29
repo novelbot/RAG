@@ -233,17 +233,42 @@ class DatabaseManager(LoggerMixin):
         Returns:
             Dict containing pool statistics
         """
-        if not self._engine or not hasattr(self._engine.pool, 'size'):
+        if not self._engine:
             return {}
             
         pool = self._engine.pool
-        return {
-            'size': pool.size(),
-            'checked_in': pool.checkedin(),
-            'checked_out': pool.checkedout(),
-            'overflow': pool.overflow(),
-            'invalid': pool.invalid(),
-        }
+        
+        # Try to get pool status safely
+        try:
+            # For QueuePool and similar pool implementations
+            status_info = {}
+            
+            # Pool size (configured size)
+            if hasattr(pool, 'size'):
+                status_info['size'] = getattr(pool, 'size', lambda: 0)() if callable(getattr(pool, 'size', None)) else getattr(pool, 'size', 0)
+            
+            # Checked in connections
+            if hasattr(pool, 'checkedin'):
+                status_info['checked_in'] = getattr(pool, 'checkedin', lambda: 0)() if callable(getattr(pool, 'checkedin', None)) else getattr(pool, 'checkedin', 0)
+            
+            # Checked out connections  
+            if hasattr(pool, 'checkedout'):
+                status_info['checked_out'] = getattr(pool, 'checkedout', lambda: 0)() if callable(getattr(pool, 'checkedout', None)) else getattr(pool, 'checkedout', 0)
+            
+            # Overflow connections
+            if hasattr(pool, 'overflow'):
+                status_info['overflow'] = getattr(pool, 'overflow', lambda: 0)() if callable(getattr(pool, 'overflow', None)) else getattr(pool, 'overflow', 0)
+            
+            # Use status() method if available
+            if hasattr(pool, 'status') and callable(getattr(pool, 'status')):
+                status_str = pool.status()
+                status_info['status_string'] = status_str
+                
+            return status_info
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to get pool status: {e}")
+            return {'error': f'Unable to retrieve pool status: {e}'}
     
     def close(self) -> None:
         """Close database connections and dispose engine."""
@@ -310,7 +335,7 @@ class DatabaseFactory:
         if not config.host:
             raise ConfigurationError("Database host not specified")
             
-        if not config.name:
+        if not config.database:
             raise ConfigurationError("Database name not specified")
         
         # Create manager
@@ -334,14 +359,14 @@ class DatabaseFactory:
         
         # For now, create a basic config
         # Extract known fields from kwargs
-        known_fields = {'driver', 'host', 'port', 'name', 'user', 'password'}
+        known_fields = {'driver', 'host', 'port', 'name', 'database', 'user', 'password'}
         config_kwargs = {k: v for k, v in kwargs.items() if k not in known_fields}
         
         config = DatabaseConfig(
             driver=kwargs.get('driver', 'postgresql'),
             host=kwargs.get('host', 'localhost'),
             port=kwargs.get('port', 5432),
-            name=kwargs.get('name', 'test'),
+            database=kwargs.get('database', kwargs.get('name', 'test')),  # Use database instead of name
             user=kwargs.get('user', 'test'),
             password=kwargs.get('password', ''),
             **config_kwargs

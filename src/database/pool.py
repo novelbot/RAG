@@ -33,7 +33,7 @@ class PoolMetrics:
     pool_hits: int = 0
     pool_misses: int = 0
     connection_errors: int = 0
-    last_updated: datetime = None
+    last_updated: Optional[datetime] = None
 
 
 class PoolMonitor:
@@ -48,13 +48,22 @@ class PoolMonitor:
     def update_metrics(self, pool: Pool) -> None:
         """Update pool metrics."""
         with self._lock:
-            if hasattr(pool, 'size'):
-                self.metrics.total_connections = pool.size()
-                self.metrics.checked_out = pool.checkedout()
-                self.metrics.overflow = pool.overflow()
-                self.metrics.invalid_connections = pool.invalid()
-                self.metrics.idle_connections = pool.checkedin()
+            try:
+                # Use direct pool attributes with safe getattr
+                self.metrics.total_connections = getattr(pool, 'size', 0) or 0
+                self.metrics.checked_out = getattr(pool, 'checkedout', 0) or 0
+                self.metrics.overflow = getattr(pool, 'overflow', 0) or 0
+                self.metrics.idle_connections = getattr(pool, 'checkedin', 0) or 0
                 self.metrics.active_connections = self.metrics.checked_out
+                self.metrics.invalid_connections = 0
+            except Exception:
+                # Fallback to zero values if pool metrics unavailable
+                self.metrics.total_connections = 0
+                self.metrics.checked_out = 0
+                self.metrics.overflow = 0
+                self.metrics.idle_connections = 0
+                self.metrics.active_connections = 0
+                self.metrics.invalid_connections = 0
             
             self.metrics.last_updated = datetime.now(timezone.utc)
     
@@ -159,42 +168,42 @@ class AdvancedConnectionPool(LoggerMixin):
             return
             
         @event.listens_for(self._engine, "connect")
-        def connect_handler(dbapi_connection, connection_record):
+        def connect_handler(_dbapi_connection, connection_record):
             """Handle new connection creation."""
             self.logger.debug(f"New connection created in pool '{self.pool_name}'")
             connection_record.info['created_at'] = datetime.now(timezone.utc)
             
         @event.listens_for(self._engine, "checkout")
-        def checkout_handler(dbapi_connection, connection_record, connection_proxy):
+        def checkout_handler(_dbapi_connection, connection_record, _connection_proxy):
             """Handle connection checkout."""
             self.logger.debug(f"Connection checked out from pool '{self.pool_name}'")
             connection_record.info['checked_out_at'] = datetime.now(timezone.utc)
             self.monitor.increment_hits()
             
         @event.listens_for(self._engine, "checkin")
-        def checkin_handler(dbapi_connection, connection_record):
+        def checkin_handler(_dbapi_connection, connection_record):
             """Handle connection checkin."""
             self.logger.debug(f"Connection checked in to pool '{self.pool_name}'")
             connection_record.info['checked_in_at'] = datetime.now(timezone.utc)
             
         @event.listens_for(self._engine, "invalidate")
-        def invalidate_handler(dbapi_connection, connection_record, exception):
+        def invalidate_handler(_dbapi_connection, _connection_record, exception):
             """Handle connection invalidation."""
             self.logger.warning(f"Connection invalidated in pool '{self.pool_name}': {exception}")
             self.monitor.increment_errors()
             
         @event.listens_for(self._engine, "soft_invalidate")
-        def soft_invalidate_handler(dbapi_connection, connection_record, exception):
+        def soft_invalidate_handler(_dbapi_connection, _connection_record, exception):
             """Handle soft connection invalidation."""
             self.logger.debug(f"Connection soft invalidated in pool '{self.pool_name}': {exception}")
             
         @event.listens_for(self._engine, "close")
-        def close_handler(dbapi_connection, connection_record):
+        def close_handler(_dbapi_connection, _connection_record):
             """Handle connection close."""
             self.logger.debug(f"Connection closed in pool '{self.pool_name}'")
             
         @event.listens_for(self._engine, "detach")
-        def detach_handler(dbapi_connection, connection_record):
+        def detach_handler(_dbapi_connection, _connection_record):
             """Handle connection detach."""
             self.logger.debug(f"Connection detached from pool '{self.pool_name}'")
     
@@ -217,6 +226,8 @@ class AdvancedConnectionPool(LoggerMixin):
         start_time = time.time()
         
         try:
+            if not self._engine:
+                raise DatabaseError("Connection pool not initialized")
             connection = self._engine.connect()
             self.logger.debug(f"Connection acquired from pool '{self.pool_name}'")
             
@@ -270,6 +281,8 @@ class AdvancedConnectionPool(LoggerMixin):
         start_time = time.time()
         
         try:
+            if not self._engine:
+                raise DatabaseError("Connection pool not initialized")
             connection = self._engine.connect()
             transaction = connection.begin()
             self.logger.debug(f"Transaction started in pool '{self.pool_name}'")
@@ -305,6 +318,8 @@ class AdvancedConnectionPool(LoggerMixin):
         """Test connection pool health."""
         try:
             with self.get_connection() as conn:
+                if not self._driver:
+                    return False
                 health_query = self._driver.get_health_check_query()
                 result = conn.execute(text(health_query))
                 return result.scalar() == 1
@@ -315,7 +330,8 @@ class AdvancedConnectionPool(LoggerMixin):
     def get_pool_status(self) -> Dict[str, Any]:
         """Get detailed pool status."""
         try:
-            self.monitor.update_metrics(self._engine.pool)
+            if self._engine:
+                self.monitor.update_metrics(self._engine.pool)
             return self.monitor.get_metrics()
         except Exception as e:
             self.logger.error(f"Failed to get pool status: {e}")
@@ -324,7 +340,7 @@ class AdvancedConnectionPool(LoggerMixin):
     def invalidate_pool(self) -> None:
         """Invalidate all connections in pool."""
         try:
-            if self._engine:
+            if self._engine and hasattr(self._engine.pool, 'invalidate'):
                 self._engine.pool.invalidate()
                 self.logger.info(f"Pool '{self.pool_name}' invalidated")
         except Exception as e:
@@ -500,7 +516,7 @@ class PoolManager(LoggerMixin):
         """Context manager entry."""
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
         """Context manager exit."""
         self.stop_monitoring()
         self.dispose_all_pools()
