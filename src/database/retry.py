@@ -664,6 +664,8 @@ class DatabaseRetryHandler(LoggerMixin):
         """Perform health check with retry logic."""
         def ping():
             with self.pool.get_connection() as conn:
+                if not self.pool._driver:
+                    raise DatabaseError("Database driver not initialized")
                 result = conn.execute(text(self.pool._driver.get_health_check_query()))
                 return result.scalar()
         

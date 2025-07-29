@@ -60,6 +60,9 @@ def get_db() -> Generator[Session, None, None]:
     if SessionLocal is None:
         init_database()
     
+    if SessionLocal is None:
+        raise RuntimeError("Failed to initialize database session")
+    
     db = SessionLocal()
     try:
         yield db

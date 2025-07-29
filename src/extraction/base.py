@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Union, Iterator, AsyncIterator, Tu
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from contextlib import contextmanager
 import json
 import hashlib
 
@@ -243,10 +244,19 @@ class BaseRDBExtractor(ABC, LoggerMixin):
         # Initialize database manager
         self.db_manager = DatabaseManager(config.database_config)
         
-        # Create a simple pool wrapper for introspector compatibility
+        # Create a pool wrapper that implements the required interface for DatabaseIntrospector
         class PoolWrapper:
             def __init__(self, engine):
                 self.engine = engine
+            
+            @contextmanager
+            def get_connection(self):
+                """Get connection as context manager."""
+                connection = self.engine.connect()
+                try:
+                    yield connection
+                finally:
+                    connection.close()
         
         self.introspector = DatabaseIntrospector(PoolWrapper(self.db_manager.engine))
         

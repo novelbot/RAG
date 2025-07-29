@@ -77,6 +77,9 @@ class DatabaseHealthChecker(LoggerMixin):
         start_time = time.time()
         
         try:
+            if self.driver is None:
+                raise HealthCheckError("Database driver is not initialized")
+                
             with self.pool.get_connection() as conn:
                 # Use driver-specific health check query
                 health_query = self.driver.get_health_check_query()
@@ -123,7 +126,7 @@ class DatabaseHealthChecker(LoggerMixin):
                 message="Ping failed",
                 error=str(e),
                 details={
-                    'query': self.driver.get_health_check_query(),
+                    'query': self.driver.get_health_check_query() if self.driver else 'SELECT 1',
                     'timeout': timeout,
                     'exception_type': type(e).__name__
                 }
@@ -214,6 +217,8 @@ class DatabaseHealthChecker(LoggerMixin):
             with self.pool.get_connection() as conn:
                 # Check database version
                 try:
+                    if self.driver is None:
+                        raise Exception("Database driver is not initialized")
                     version_query = self.driver.get_version_query()
                     version_result = conn.execute(text(version_query))
                     version = version_result.scalar()
@@ -272,6 +277,8 @@ class DatabaseHealthChecker(LoggerMixin):
                 if check_permissions:
                     try:
                         # Test SELECT permission
+                        if self.driver is None:
+                            raise Exception("Database driver is not initialized")
                         conn.execute(text(self.driver.get_health_check_query()))
                         result.checks_passed.append("SELECT permission verified")
                         
@@ -331,6 +338,8 @@ class DatabaseHealthChecker(LoggerMixin):
                 # Test concurrent access
                 for conn in connections:
                     with conn:
+                        if self.driver is None:
+                            raise Exception("Database driver is not initialized")
                         conn.execute(text(self.driver.get_health_check_query()))
                         
                 result.checks_passed.append("Concurrent connection access successful")

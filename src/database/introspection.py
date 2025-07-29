@@ -2,7 +2,7 @@
 Database schema detection and introspection capabilities.
 """
 
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
 import json
@@ -12,6 +12,7 @@ from sqlalchemy import (
     String, Integer, Float, Boolean, DateTime, Date, Time, Text, JSON
 )
 from sqlalchemy.engine import Inspector
+from sqlalchemy.engine.interfaces import ReflectedColumn, ReflectedIndex, ReflectedForeignKeyConstraint
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import ForeignKey, Index, PrimaryKeyConstraint, UniqueConstraint
 from loguru import logger
@@ -237,7 +238,7 @@ class DatabaseIntrospector(LoggerMixin):
             self.logger.error(f"Failed to introspect table {table_name}: {e}")
             raise DatabaseError(f"Table introspection failed: {e}")
     
-    def _build_column_info(self, column_data: Dict[str, Any]) -> ColumnInfo:
+    def _build_column_info(self, column_data: ReflectedColumn) -> ColumnInfo:
         """Build ColumnInfo from SQLAlchemy column data."""
         col_type = self._map_column_type(column_data['type'])
         
@@ -265,22 +266,22 @@ class DatabaseIntrospector(LoggerMixin):
         # Default to unknown
         return ColumnType.UNKNOWN
     
-    def _build_foreign_key_info(self, fk_data: Dict[str, Any]) -> ForeignKeyInfo:
+    def _build_foreign_key_info(self, fk_data: ReflectedForeignKeyConstraint) -> ForeignKeyInfo:
         """Build ForeignKeyInfo from SQLAlchemy foreign key data."""
         return ForeignKeyInfo(
-            name=fk_data.get('name', ''),
+            name=fk_data.get('name') or '',
             columns=fk_data.get('constrained_columns', []),
-            referred_table=fk_data.get('referred_table', ''),
+            referred_table=fk_data.get('referred_table') or '',
             referred_columns=fk_data.get('referred_columns', []),
             on_delete=fk_data.get('options', {}).get('ondelete'),
             on_update=fk_data.get('options', {}).get('onupdate')
         )
     
-    def _build_index_info(self, index_data: Dict[str, Any]) -> IndexInfo:
+    def _build_index_info(self, index_data: ReflectedIndex) -> IndexInfo:
         """Build IndexInfo from SQLAlchemy index data."""
         return IndexInfo(
-            name=index_data.get('name', ''),
-            columns=index_data.get('column_names', []),
+            name=index_data.get('name') or '',
+            columns=[col for col in index_data.get('column_names', []) if col is not None],
             unique=index_data.get('unique', False),
             type=index_data.get('type')
         )
