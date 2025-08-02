@@ -96,14 +96,17 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         Returns:
             True if token is valid, False otherwise
         """
-        # TODO: Implement actual JWT validation
-        # For now, accept specific demo tokens
-        valid_tokens = {
-            "demo_access_token",
-            "admin_token",
-            "test_token"
-        }
-        return token in valid_tokens
+        try:
+            from src.auth.jwt_manager import JWTManager
+            
+            jwt_manager = JWTManager()
+            jwt_manager.validate_token(token, token_type="access")
+            return True
+            
+        except Exception as e:
+            # Log the error for debugging but don't expose details
+            print(f"Token validation failed: {e}")
+            return False
     
     def _unauthorized_response(self, message: str) -> JSONResponse:
         """
@@ -223,8 +226,13 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             client_ip: Client IP address
             user_agent: User agent string
         """
-        # TODO: Use proper logging framework
-        print(f"[API] {method} {url} - {status_code} - {duration:.4f}s - {client_ip} - {user_agent}")
+        try:
+            from src.core.logging import get_logger
+            logger = get_logger(__name__)
+            logger.info(f"[API] {method} {url} - {status_code} - {duration:.4f}s - {client_ip} - {user_agent}")
+        except ImportError:
+            # Fallback to print if logging module not available
+            print(f"[API] {method} {url} - {status_code} - {duration:.4f}s - {client_ip} - {user_agent}")
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

@@ -35,7 +35,7 @@ from .prompt_engineer import PromptEngineer
 from .response_evaluator import ResponseEvaluator
 from .response_processor import ResponseProcessor
 from .error_handler import ErrorHandler
-from .manager import ResponseGenerationManager
+# from .manager import ResponseGenerationManager  # Module not yet implemented
 
 __all__ = [
     # Base classes and data types
@@ -66,7 +66,7 @@ __all__ = [
     "ErrorHandler",
     
     # Manager
-    "ResponseGenerationManager"
+    # "ResponseGenerationManager"  # Module not yet implemented
 ]
 
 # Version info

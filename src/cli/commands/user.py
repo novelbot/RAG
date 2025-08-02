@@ -6,6 +6,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 from typing import Optional
+from datetime import datetime
 
 from ..utils import (
     console, confirm_action, prompt_for_input, display_table
@@ -16,6 +17,7 @@ from src.database.base import DatabaseFactory
 from src.auth.models import User, Role, Permission, UserRole, RolePermission
 from src.core.exceptions import DatabaseError
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.sql import func
 
 console = Console()
 
@@ -298,9 +300,225 @@ def update_user(username, email, role, password, status, add_groups, remove_grou
         # User update cancelled
         return
     
-    # TODO: Implement actual user update
-    console.print("[red]✗ User update implementation not complete[/red]")
-    # User update completed
+    # Implement actual user update
+    try:
+        # Get configuration and database connection
+        config = get_config()
+        db_manager = DatabaseFactory.create_manager(config.database)
+        
+        if not db_manager.test_connection():
+            console.print("[red]✗ Cannot connect to database[/red]")
+            return
+        
+        Session = sessionmaker(bind=db_manager.engine)
+        
+        with Session() as session:
+            # Find the user to update
+            user = session.query(User).filter_by(username=username).first()
+            if not user:
+                console.print(f"[red]✗ User '{username}' not found[/red]")
+                return
+            
+            # Check if user is trying to modify admin account without proper permissions
+            if user.is_superuser and not confirm_action("This is an admin account. Are you sure you want to modify it?"):
+                console.print("[yellow]Admin account modification cancelled[/yellow]")
+                return
+            
+            updates_made = []
+            
+            # Update email
+            if email:
+                # Check if email is already in use
+                existing_email_user = session.query(User).filter(
+                    User.email == email,
+                    User.id != user.id
+                ).first()
+                if existing_email_user:
+                    console.print(f"[red]✗ Email '{email}' is already in use by another user[/red]")
+                    return
+                
+                old_email = user.email
+                user.email = email
+                updates_made.append(f"Email: {old_email} → {email}")
+            
+            # Update role
+            if role:
+                # Find the new role
+                new_role = session.query(Role).filter_by(name=role).first()
+                if not new_role:
+                    console.print(f"[red]✗ Role '{role}' does not exist[/red]")
+                    available_roles = session.query(Role).all()
+                    if available_roles:
+                        console.print("[dim]Available roles:[/dim]")
+                        for r in available_roles:
+                            console.print(f"  • {r.name} - {r.description}")
+                    return
+                
+                # Get current roles for comparison
+                current_roles = [ur.role.name for ur in user.user_roles]
+                
+                # Remove all existing roles
+                for user_role in user.user_roles:
+                    session.delete(user_role)
+                
+                # Add new role
+                new_user_role = UserRole(
+                    user_id=user.id,
+                    role_id=new_role.id
+                )
+                session.add(new_user_role)
+                
+                updates_made.append(f"Role: {', '.join(current_roles)} → {role}")
+            
+            # Update password
+            if password is not None:
+                user.set_password(password)
+                updates_made.append("Password: [updated]")
+            
+            # Update status
+            if status:
+                old_status = 'active' if user.is_active else 'inactive'
+                new_status = status == 'active'
+                user.is_active = new_status
+                
+                if old_status != status:
+                    updates_made.append(f"Status: {old_status} → {status}")
+            
+            # Handle group additions - implement actual group membership
+            if groups_to_add:
+                try:
+                    from src.access_control.group_manager import GroupManager, group_users
+                    
+                    # Add user to each specified group
+                    added_groups = []
+                    failed_groups = []
+                    
+                    for group_name in groups_to_add:
+                        try:
+                            # Check if group exists
+                            group = session.query(Group).filter_by(name=group_name).first()
+                            if not group:
+                                console.print(f"[yellow]Warning: Group '{group_name}' does not exist, skipping[/yellow]")
+                                failed_groups.append(f"{group_name} (not found)")
+                                continue
+                            
+                            # Check if user is already in the group
+                            existing_membership = session.execute(
+                                group_users.select().where(
+                                    (group_users.c.group_id == group.id) &
+                                    (group_users.c.user_id == user.id)
+                                )
+                            ).first()
+                            
+                            if existing_membership:
+                                console.print(f"[dim]User already in group '{group_name}', updating status[/dim]")
+                                # Update existing membership to active
+                                session.execute(
+                                    group_users.update().where(
+                                        (group_users.c.group_id == group.id) &
+                                        (group_users.c.user_id == user.id)
+                                    ).values(
+                                        status='active',
+                                        updated_at=func.now()
+                                    )
+                                )
+                                added_groups.append(f"{group_name} (reactivated)")
+                            else:
+                                # Add new membership
+                                session.execute(
+                                    group_users.insert().values(
+                                        group_id=group.id,
+                                        user_id=user.id,
+                                        group_role='member',
+                                        status='active'
+                                    )
+                                )
+                                added_groups.append(group_name)
+                            
+                        except Exception as group_error:
+                            console.print(f"[red]Error adding to group '{group_name}': {group_error}[/red]")
+                            failed_groups.append(f"{group_name} (error)")
+                    
+                    if added_groups:
+                        updates_made.append(f"Added to groups: {', '.join(added_groups)}")
+                    if failed_groups:
+                        updates_made.append(f"Failed to add to groups: {', '.join(failed_groups)}")
+                        
+                except ImportError:
+                    # Group system not available, add placeholder message
+                    updates_made.append(f"Groups to add: {', '.join(groups_to_add)} (group system not fully available)")
+                    console.print("[yellow]Warning: Group management system not fully implemented[/yellow]")
+            
+            # Handle group removals - implement actual group membership removal
+            if groups_to_remove:
+                try:
+                    from src.access_control.group_manager import GroupManager, group_users
+                    
+                    # Remove user from each specified group
+                    removed_groups = []
+                    failed_groups = []
+                    
+                    for group_name in groups_to_remove:
+                        try:
+                            # Check if group exists
+                            group = session.query(Group).filter_by(name=group_name).first()
+                            if not group:
+                                console.print(f"[yellow]Warning: Group '{group_name}' does not exist, skipping[/yellow]")
+                                failed_groups.append(f"{group_name} (not found)")
+                                continue
+                            
+                            # Remove membership
+                            result = session.execute(
+                                group_users.delete().where(
+                                    (group_users.c.group_id == group.id) &
+                                    (group_users.c.user_id == user.id)
+                                )
+                            )
+                            
+                            if result.rowcount > 0:
+                                removed_groups.append(group_name)
+                            else:
+                                failed_groups.append(f"{group_name} (not a member)")
+                            
+                        except Exception as group_error:
+                            console.print(f"[red]Error removing from group '{group_name}': {group_error}[/red]")
+                            failed_groups.append(f"{group_name} (error)")
+                    
+                    if removed_groups:
+                        updates_made.append(f"Removed from groups: {', '.join(removed_groups)}")
+                    if failed_groups:
+                        updates_made.append(f"Failed to remove from groups: {', '.join(failed_groups)}")
+                        
+                except ImportError:
+                    # Group system not available, add placeholder message
+                    updates_made.append(f"Groups to remove: {', '.join(groups_to_remove)} (group system not fully available)")
+                    console.print("[yellow]Warning: Group management system not fully implemented[/yellow]")
+            
+            # Commit all changes
+            session.commit()
+            
+            # Show success message with summary of changes
+            console.print(f"[green]✅ User '{username}' updated successfully[/green]")
+            
+            if updates_made:
+                console.print("[dim]Changes applied:[/dim]")
+                for update in updates_made:
+                    console.print(f"  • {update}")
+            
+            # Display updated user information
+            user_roles = [ur.role.name for ur in user.user_roles]
+            console.print(f"\n[dim]Current user details:[/dim]")
+            console.print(f"  Username: {user.username}")
+            console.print(f"  Email: {user.email}")
+            console.print(f"  Roles: {', '.join(user_roles) if user_roles else 'None'}")
+            console.print(f"  Status: {'active' if user.is_active else 'inactive'}")
+            console.print(f"  Verified: {'yes' if user.is_verified else 'no'}")
+            console.print(f"  Last Login: {user.last_login.strftime('%Y-%m-%d %H:%M:%S') if user.last_login else 'Never'}")
+            
+    except DatabaseError as e:
+        console.print(f"[red]✗ Database error: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]✗ Error updating user: {e}[/red]")
 
 
 @user_group.command(name='delete')
@@ -327,16 +545,158 @@ def delete_user(username, force):
             # User deletion cancelled
             return
     
-    # TODO: Implement actual user deletion
-    # This would involve:
-    # 1. Checking if user exists
-    # 2. Checking for dependencies (owned resources, etc.)
-    # 3. Removing user from all groups
-    # 4. Deleting user record
-    # 5. Cleaning up associated data
-    
-    console.print("[red]✗ User deletion implementation not complete[/red]")
-    # User deletion completed
+    # Implement actual user deletion with comprehensive cleanup
+    try:
+        # Get configuration and database connection
+        config = get_config()
+        db_manager = DatabaseFactory.create_manager(config.database)
+        
+        if not db_manager.test_connection():
+            console.print("[red]✗ Cannot connect to database[/red]")
+            return
+        
+        Session = sessionmaker(bind=db_manager.engine)
+        
+        with Session() as session:
+            # 1. Check if user exists
+            user = session.query(User).filter_by(username=username).first()
+            if not user:
+                console.print(f"[red]✗ User '{username}' not found[/red]")
+                return
+            
+            # 2. Admin account protection
+            if user.is_superuser:
+                console.print(f"[yellow]Warning: '{username}' is a superuser/admin account[/yellow]")
+                
+                # Count other admin users
+                other_admins = session.query(User).filter(
+                    User.is_superuser == True,
+                    User.id != user.id,
+                    User.is_active == True
+                ).count()
+                
+                if other_admins == 0:
+                    console.print("[red]✗ Cannot delete the last active admin account[/red]")
+                    console.print("[dim]Create another admin account before deleting this one[/dim]")
+                    return
+                
+                if not confirm_action("This is the last admin account. Are you absolutely sure you want to delete it?"):
+                    console.print("[yellow]Admin account deletion cancelled[/yellow]")
+                    return
+            
+            # 3. Check for dependencies and owned resources
+            dependencies_found = []
+            
+            # Check for owned documents (if document model exists)
+            try:
+                from src.models.document import Document
+                owned_documents = session.query(Document).filter_by(owner_id=user.id).count()
+                if owned_documents > 0:
+                    dependencies_found.append(f"{owned_documents} documents")
+            except ImportError:
+                pass  # Document model not available
+            
+            # Check for query logs
+            try:
+                from src.models.query_log import QueryLog
+                user_queries = session.query(QueryLog).filter_by(user_id=str(user.id)).count()
+                if user_queries > 0:
+                    dependencies_found.append(f"{user_queries} query logs")
+            except ImportError:
+                pass  # QueryLog model not available
+            
+            # Check for role assignments to other users (if user assigned roles to others)
+            role_assignments = session.query(UserRole).filter_by(assigned_by=user.id).count()
+            if role_assignments > 0:
+                dependencies_found.append(f"{role_assignments} role assignments")
+            
+            # Show dependency warning
+            if dependencies_found:
+                console.print(f"[yellow]Warning: User has associated data:[/yellow]")
+                for dependency in dependencies_found:
+                    console.print(f"  • {dependency}")
+                console.print("[dim]This data will be cleaned up or orphaned after deletion[/dim]")
+                
+                if not confirm_action("Proceed with deletion and cleanup?"):
+                    console.print("[yellow]User deletion cancelled[/yellow]")
+                    return
+            
+            # Store user info for logging
+            user_info = {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'roles': [ur.role.name for ur in user.user_roles],
+                'is_superuser': user.is_superuser,
+                'created_at': user.created_at
+            }
+            
+            # 4. Begin cleanup process
+            console.print(f"[yellow]Cleaning up user data for '{username}'...[/yellow]")
+            
+            # Remove user from all groups (using group_users association table)
+            try:
+                from src.access_control.group_manager import group_users
+                session.execute(
+                    group_users.delete().where(group_users.c.user_id == user.id)
+                )
+                console.print("  • Removed from all groups")
+            except Exception as e:
+                console.print(f"  • [yellow]Warning: Could not remove from groups: {e}[/yellow]")
+            
+            # Update role assignments where this user was the assigner
+            role_assignments = session.query(UserRole).filter_by(assigned_by=user.id).all()
+            for assignment in role_assignments:
+                assignment.assigned_by = None  # Orphan the assignment
+            console.print(f"  • Orphaned {len(role_assignments)} role assignments")
+            
+            # Clean up owned documents (transfer to system or mark as orphaned)
+            try:
+                from src.models.document import Document
+                owned_documents = session.query(Document).filter_by(owner_id=user.id).all()
+                for document in owned_documents:
+                    document.owner_id = None  # Orphan the document
+                console.print(f"  • Orphaned {len(owned_documents)} documents")
+            except ImportError:
+                pass
+            
+            # Update query logs to maintain referential integrity
+            try:
+                from src.models.query_log import QueryLog
+                user_queries = session.query(QueryLog).filter_by(user_id=str(user.id)).all()
+                for query_log in user_queries:
+                    query_log.user_id = f"deleted_user_{user.id}"  # Mark as deleted user
+                console.print(f"  • Updated {len(user_queries)} query logs")
+            except ImportError:
+                pass
+            
+            # 5. Delete user roles (cascade will handle this, but being explicit)
+            for user_role in user.user_roles:
+                session.delete(user_role)
+            console.print("  • Removed all role assignments")
+            
+            # 6. Finally, delete the user record
+            session.delete(user)
+            
+            # Commit all changes
+            session.commit()
+            
+            # Success message with audit information
+            console.print(f"[green]✅ User '{username}' deleted successfully[/green]")
+            console.print(f"[dim]Deleted user details:[/dim]")
+            console.print(f"  User ID: {user_info['id']}")
+            console.print(f"  Email: {user_info['email']}")
+            console.print(f"  Roles: {', '.join(user_info['roles']) if user_info['roles'] else 'None'}")
+            console.print(f"  Was Superuser: {'yes' if user_info['is_superuser'] else 'no'}")
+            console.print(f"  Account Age: {datetime.now() - user_info['created_at']}")
+            
+            # Audit log entry (basic console logging)
+            console.print(f"\n[dim]Audit: User '{username}' (ID: {user_info['id']}) deleted at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}[/dim]")
+            
+    except DatabaseError as e:
+        console.print(f"[red]✗ Database error: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]✗ Error deleting user: {e}[/red]")
 
 
 @user_group.command(name='groups')
@@ -354,16 +714,142 @@ def show_user_groups(username):
     
     console.print(f"[yellow]Groups for user '{username}':[/yellow]")
     
-    # TODO: Get actual user groups from database
-    sample_groups = [
-        {'group': 'users', 'role': 'member', 'permissions': 'read'},
-        {'group': 'content', 'role': 'editor', 'permissions': 'read, write'},
-        {'group': 'reviewers', 'role': 'member', 'permissions': 'read, review'}
-    ]
-    
-    if sample_groups:
-        display_table(sample_groups, title=f"Groups for {username}")
-    else:
-        console.print("[yellow]User is not a member of any groups[/yellow]")
-    
-    # Groups displayed for user
+    # Get actual user groups from database
+    try:
+        # Get configuration and database connection
+        config = get_config()
+        db_manager = DatabaseFactory.create_manager(config.database)
+        
+        if not db_manager.test_connection():
+            console.print("[red]✗ Cannot connect to database[/red]")
+            return
+        
+        Session = sessionmaker(bind=db_manager.engine)
+        
+        with Session() as session:
+            # Find the user
+            user = session.query(User).filter_by(username=username).first()
+            if not user:
+                console.print(f"[red]✗ User '{username}' not found[/red]")
+                return
+            
+            # Get user's groups using the group_users association table
+            user_groups = []
+            
+            try:
+                # Import group models
+                from src.access_control.group_manager import Group, group_users, GroupRole, MembershipStatus
+                
+                # Query groups through association table
+                group_memberships = session.execute(
+                    session.query(Group, group_users.c.group_role, group_users.c.status, 
+                                group_users.c.joined_at, group_users.c.expires_at)\
+                           .join(group_users, Group.id == group_users.c.group_id)\
+                           .filter(group_users.c.user_id == user.id)\
+                           .statement
+                ).fetchall()
+                
+                for membership in group_memberships:
+                    group, group_role, status, joined_at, expires_at = membership
+                    
+                    # Get group permissions through roles
+                    group_permissions = []
+                    try:
+                        # Get roles assigned to the group
+                        from src.access_control.group_manager import group_roles
+                        group_role_assignments = session.execute(
+                            session.query(Role, group_roles.c.assigned_at, group_roles.c.expires_at)\
+                                   .join(group_roles, Role.id == group_roles.c.role_id)\
+                                   .filter(group_roles.c.group_id == group.id)\
+                                   .statement
+                        ).fetchall()
+                        
+                        for role_assignment in group_role_assignments:
+                            role, assigned_at, role_expires_at = role_assignment
+                            # Skip expired role assignments
+                            if role_expires_at and datetime.now() > role_expires_at:
+                                continue
+                            
+                            # Get permissions for this role
+                            role_permissions = role.get_all_permissions()
+                            group_permissions.extend(role_permissions)
+                        
+                    except Exception as perm_error:
+                        console.print(f"[yellow]Warning: Could not fetch permissions for group {group.name}: {perm_error}[/yellow]")
+                    
+                    # Determine membership status
+                    is_expired = expires_at and datetime.now() > expires_at
+                    effective_status = "expired" if is_expired else status
+                    
+                    user_groups.append({
+                        'group': group.name,
+                        'description': group.description or '',
+                        'type': group.group_type,
+                        'role': group_role,
+                        'status': effective_status,
+                        'permissions': ', '.join(sorted(set(group_permissions))) if group_permissions else 'None',
+                        'joined_at': joined_at.strftime('%Y-%m-%d') if joined_at else 'Unknown',
+                        'expires_at': expires_at.strftime('%Y-%m-%d') if expires_at else 'Never'
+                    })
+                
+            except ImportError as e:
+                # Groups system not available, show alternative information
+                console.print(f"[yellow]Groups system not available: {e}[/yellow]")
+                console.print(f"[dim]Showing role-based information instead...[/dim]")
+                
+                # Show user roles as a fallback
+                user_roles_info = []
+                for user_role in user.user_roles:
+                    role = user_role.role
+                    permissions = role.get_all_permissions()
+                    
+                    user_roles_info.append({
+                        'group': f"Role: {role.name}",
+                        'description': role.description or '',
+                        'type': 'role',
+                        'role': 'assigned',
+                        'status': 'active' if not user_role.is_expired() else 'expired',
+                        'permissions': ', '.join(sorted(permissions)) if permissions else 'None',
+                        'joined_at': user_role.assigned_at.strftime('%Y-%m-%d') if user_role.assigned_at else 'Unknown',
+                        'expires_at': user_role.expires_at.strftime('%Y-%m-%d') if user_role.expires_at else 'Never'
+                    })
+                
+                user_groups = user_roles_info
+            
+            # Display results
+            if user_groups:
+                console.print(f"[green]Found {len(user_groups)} group memberships for '{username}'[/green]")
+                
+                # Display in detailed format
+                for i, group_info in enumerate(user_groups):
+                    console.print(f"\n[bold]{i+1}. {group_info['group']}[/bold]")
+                    console.print(f"   Description: {group_info['description']}")
+                    console.print(f"   Type: {group_info['type']}")
+                    console.print(f"   Role: {group_info['role']}")
+                    console.print(f"   Status: {group_info['status']}")
+                    console.print(f"   Joined: {group_info['joined_at']}")
+                    console.print(f"   Expires: {group_info['expires_at']}")
+                    console.print(f"   Permissions: {group_info['permissions']}")
+                
+                # Also show in table format for overview
+                console.print(f"\n[dim]Summary table:[/dim]")
+                table_columns = ['group', 'type', 'role', 'status', 'permissions']
+                display_table(user_groups, title=f"Groups for {username}", columns=table_columns)
+                
+            else:
+                console.print(f"[yellow]User '{username}' is not a member of any groups[/yellow]")
+                
+                # Show user's direct roles as alternative
+                if user.user_roles:
+                    console.print(f"[dim]Direct role assignments:[/dim]")
+                    for user_role in user.user_roles:
+                        role = user_role.role
+                        status = 'active' if not user_role.is_expired() else 'expired'
+                        console.print(f"  • {role.name} ({status}) - {role.description or 'No description'}")
+                else:
+                    console.print(f"[yellow]User '{username}' has no roles assigned[/yellow]")
+                    
+    except DatabaseError as e:
+        console.print(f"[red]✗ Database error: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]✗ Error fetching user groups: {e}[/red]")

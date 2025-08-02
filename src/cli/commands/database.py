@@ -143,22 +143,149 @@ def migrate_database(target, dry_run):
         rag-cli database migrate --target 001_initial
         rag-cli database migrate --dry-run
     """
-    # Running database migrations
-    
     console.print("[yellow]Checking for pending migrations...[/yellow]")
     
     if dry_run:
         console.print("[dim]Running in dry-run mode - no changes will be made[/dim]")
     
-    # TODO: Implement actual database migration
-    # This would involve:
-    # 1. Checking current schema version
-    # 2. Finding pending migrations
-    # 3. Applying migrations in order
-    # 4. Updating migration history
-    
-    console.print("[red]✗ Database migration implementation not complete[/red]")
-    # Database migration completed
+    try:
+        # Get configuration
+        config = get_config() 
+        
+        # Look for alembic.ini file
+        alembic_ini_path = Path("alembic.ini")
+        if not alembic_ini_path.exists():
+            console.print("[red]✗ alembic.ini not found. Please initialize Alembic first.[/red]")
+            console.print("[dim]Run 'alembic init alembic' to set up migrations[/dim]")
+            return
+        
+        # Import Alembic components
+        from alembic.config import Config as AlembicConfig
+        from alembic import command as alembic_command
+        from alembic.script import ScriptDirectory
+        from alembic.migration import MigrationContext
+        
+        # Configure Alembic
+        alembic_cfg = AlembicConfig(str(alembic_ini_path))
+        
+        # Create database manager to get connection
+        db_manager = DatabaseFactory.create_manager(config.database)
+        
+        if not db_manager.test_connection():
+            console.print("[red]✗ Cannot connect to database[/red]")
+            return
+        
+        # Get current and target revisions
+        with db_manager.get_connection() as conn:
+            context = MigrationContext.configure(conn)
+            current_rev = context.get_current_revision()
+            
+            script_dir = ScriptDirectory.from_config(alembic_cfg)
+            
+            # Determine target revision
+            if target:
+                target_rev = target
+            else:
+                target_rev = script_dir.get_current_head()
+            
+            console.print(f"[dim]Current revision: {current_rev or 'None'}[/dim]")
+            console.print(f"[dim]Target revision: {target_rev}[/dim]")
+            
+            # Check if migration is needed
+            if current_rev == target_rev:
+                console.print("[green]✓ Database is already up to date[/green]")
+                return
+            
+            # Get migration path
+            try:
+                migration_steps = []
+                for rev in script_dir.walk_revisions(target_rev, current_rev):
+                    migration_steps.append(rev)
+                
+                if not migration_steps:
+                    console.print("[green]✓ No pending migrations found[/green]")
+                    return
+                
+                console.print(f"[yellow]Found {len(migration_steps)} pending migration(s):[/yellow]")
+                
+                # Show pending migrations
+                for i, rev in enumerate(reversed(migration_steps), 1):
+                    console.print(f"  {i}. {rev.revision[:8]} - {rev.doc or 'No description'}")
+                
+                if dry_run:
+                    # Generate SQL for dry run
+                    console.print("\n[yellow]Generated SQL (dry-run):[/yellow]")
+                    
+                    try:
+                        # Capture SQL output
+                        from io import StringIO
+                        import sys
+                        
+                        # Redirect stdout to capture SQL
+                        old_stdout = sys.stdout
+                        sql_output = StringIO()
+                        sys.stdout = sql_output
+                        
+                        try:
+                            # Generate SQL without executing
+                            alembic_command.upgrade(alembic_cfg, target_rev, sql=True)
+                            sql_content = sql_output.getvalue()
+                            
+                            if sql_content.strip():
+                                console.print(f"[dim]{sql_content}[/dim]")
+                            else:
+                                console.print("[dim]No SQL generated[/dim]")
+                                
+                        finally:
+                            sys.stdout = old_stdout
+                            
+                    except Exception as e:
+                        console.print(f"[red]✗ Failed to generate SQL: {e}[/red]")
+                    
+                    console.print("[green]✓ Dry-run completed[/green]")
+                    
+                else:
+                    # Confirm before proceeding
+                    if not confirm_action("Apply these migrations?"):
+                        console.print("[yellow]Migration cancelled by user[/yellow]")
+                        return
+                    
+                    # Apply migrations
+                    with create_progress_bar() as progress:
+                        task = progress.add_task("Applying migrations...", total=None)
+                        
+                        try:
+                            # Run the migration
+                            alembic_command.upgrade(alembic_cfg, target_rev)
+                            console.print("[green]✓ Migrations applied successfully[/green]")
+                            
+                        except Exception as e:
+                            console.print(f"[red]✗ Migration failed: {e}[/red]")
+                            console.print("[yellow]⚠ Database may be in an inconsistent state[/yellow]")
+                            return
+                        finally:
+                            progress.remove_task(task)
+                    
+                    # Verify final state
+                    with db_manager.get_connection() as conn:
+                        context = MigrationContext.configure(conn)
+                        final_rev = context.get_current_revision()
+                        console.print(f"[dim]Final revision: {final_rev}[/dim]")
+                        
+                        if final_rev == target_rev:
+                            console.print("[green]✅ Migration completed successfully[/green]")
+                        else:
+                            console.print("[yellow]⚠ Migration may not have completed fully[/yellow]")
+                            
+            except Exception as e:
+                console.print(f"[red]✗ Failed to analyze migrations: {e}[/red]")
+                return
+                
+    except ImportError as e:
+        console.print(f"[red]✗ Alembic not available: {e}[/red]")
+        console.print("[dim]Install with: uv add alembic[/dim]")
+    except Exception as e:
+        console.print(f"[red]✗ Migration failed: {e}[/red]")
 
 
 @database_group.command(name='backup')
@@ -178,22 +305,256 @@ def backup_database(output, compress, include_data):
         rag-cli database backup --output backup.sql
         rag-cli database backup --schema-only --no-compress
     """
-    # Creating database backup
-    
-    if not output:
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        extension = ".sql.gz" if compress else ".sql"
-        output = f"rag_backup_{timestamp}{extension}"
-    
-    console.print(f"[yellow]Creating database backup: {output}[/yellow]")
-    
-    backup_type = "Full backup" if include_data else "Schema only"
-    console.print(f"[dim]{backup_type}, Compressed: {compress}[/dim]")
-    
-    # TODO: Implement actual database backup
-    console.print("[red]✗ Database backup implementation not complete[/red]")
-    # Database backup completed
+    try:
+        # Get configuration
+        config = get_config()
+        
+        # Generate output filename if not provided
+        if not output:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            extension = ".sql.gz" if compress else ".sql"
+            output = f"rag_backup_{timestamp}{extension}"
+        
+        console.print(f"[yellow]Creating database backup: {output}[/yellow]")
+        
+        backup_type = "Full backup" if include_data else "Schema only"
+        console.print(f"[dim]{backup_type}, Compressed: {compress}[/dim]")
+        
+        # Test database connection first
+        db_manager = DatabaseFactory.create_manager(config.database)
+        if not db_manager.test_connection():
+            console.print("[red]✗ Cannot connect to database[/red]")
+            return
+        
+        with create_progress_bar() as progress:
+            task = progress.add_task("Creating backup...", total=None)
+            
+            backup_success = False
+            temp_file = None
+            
+            try:
+                # Handle different database drivers
+                driver = config.database.driver.lower()
+                
+                if driver.startswith('postgresql'):
+                    backup_success = _backup_postgresql(config, output, compress, include_data, progress, task)
+                elif driver.startswith('mysql') or driver.startswith('mariadb'):
+                    backup_success = _backup_mysql(config, output, compress, include_data, progress, task)
+                elif driver.startswith('sqlite'):
+                    backup_success = _backup_sqlite(config, output, compress, include_data, progress, task)
+                else:
+                    console.print(f"[red]✗ Backup not supported for database driver: {driver}[/red]")
+                    return
+                
+                if backup_success:
+                    # Verify backup file was created
+                    output_path = Path(output)
+                    if output_path.exists():
+                        file_size = output_path.stat().st_size
+                        console.print(f"[green]✓ Backup created successfully[/green]")
+                        console.print(f"[dim]File: {output} ({file_size:,} bytes)[/dim]")
+                    else:
+                        console.print("[red]✗ Backup file was not created[/red]")
+                else:
+                    console.print("[red]✗ Backup failed[/red]")
+                    
+            except Exception as e:
+                console.print(f"[red]✗ Backup failed: {e}[/red]")
+            finally:
+                progress.remove_task(task)
+                
+    except Exception as e:
+        console.print(f"[red]✗ Failed to create backup: {e}[/red]")
+
+
+def _backup_postgresql(config, output, compress, include_data, progress, task):
+    """Create PostgreSQL backup using pg_dump."""
+    try:
+        progress.update(task, description="Running pg_dump...")
+        
+        # Build pg_dump command
+        cmd = ['pg_dump']
+        
+        # Connection parameters
+        cmd.extend(['-h', config.database.host])
+        cmd.extend(['-p', str(config.database.port)])
+        cmd.extend(['-U', config.database.user])
+        cmd.extend(['-d', config.database.name])
+        
+        # Backup options
+        if not include_data:
+            cmd.append('--schema-only')
+        
+        # Environment for password
+        env = subprocess.os.environ.copy()
+        if config.database.password:
+            env['PGPASSWORD'] = config.database.password
+        
+        # Execute backup
+        if compress and output.endswith('.gz'):
+            # Create uncompressed backup first, then compress
+            temp_output = output[:-3]  # Remove .gz extension
+            with open(temp_output, 'w') as f:
+                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, 
+                                      env=env, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                # Compress the file
+                import gzip
+                with open(temp_output, 'rb') as f_in:
+                    with gzip.open(output, 'wb') as f_out:
+                        f_out.writelines(f_in)
+                Path(temp_output).unlink()  # Remove temp file
+                return True
+        else:
+            # Direct output to file
+            with open(output, 'w') as f:
+                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, 
+                                      env=env, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                return True
+        
+        # Handle errors
+        if result.stderr:
+            console.print(f"[red]pg_dump error: {result.stderr}[/red]")
+        return False
+        
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ Backup timed out[/red]")
+        return False
+    except FileNotFoundError:
+        console.print("[red]✗ pg_dump not found. Please install PostgreSQL client tools.[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ PostgreSQL backup failed: {e}[/red]")
+        return False
+
+
+def _backup_mysql(config, output, compress, include_data, progress, task):
+    """Create MySQL/MariaDB backup using mysqldump."""
+    try:
+        progress.update(task, description="Running mysqldump...")
+        
+        # Build mysqldump command
+        cmd = ['mysqldump']
+        
+        # Connection parameters
+        cmd.extend(['-h', config.database.host])
+        cmd.extend(['-P', str(config.database.port)])
+        cmd.extend(['-u', config.database.user])
+        
+        if config.database.password:
+            cmd.extend(['-p' + config.database.password])
+        
+        # Backup options
+        if not include_data:
+            cmd.append('--no-data')
+        
+        cmd.append(config.database.name)
+        
+        # Execute backup
+        if compress and output.endswith('.gz'):
+            # Create uncompressed backup first, then compress
+            temp_output = output[:-3]  # Remove .gz extension
+            with open(temp_output, 'w') as f:
+                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, 
+                                      text=True, timeout=300)
+            
+            if result.returncode == 0:
+                # Compress the file
+                import gzip
+                with open(temp_output, 'rb') as f_in:
+                    with gzip.open(output, 'wb') as f_out:
+                        f_out.writelines(f_in)
+                Path(temp_output).unlink()  # Remove temp file
+                return True
+        else:
+            # Direct output to file
+            with open(output, 'w') as f:
+                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, 
+                                      text=True, timeout=300)
+            
+            if result.returncode == 0:
+                return True
+        
+        # Handle errors
+        if result.stderr:
+            console.print(f"[red]mysqldump error: {result.stderr}[/red]")
+        return False
+        
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ Backup timed out[/red]")
+        return False
+    except FileNotFoundError:
+        console.print("[red]✗ mysqldump not found. Please install MySQL client tools.[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ MySQL backup failed: {e}[/red]")
+        return False
+
+
+def _backup_sqlite(config, output, compress, include_data, progress, task):
+    """Create SQLite backup by copying the database file."""
+    try:
+        progress.update(task, description="Backing up SQLite database...")
+        
+        # For SQLite, the database "name" is the file path
+        db_path = Path(config.database.name)
+        
+        if not db_path.exists():
+            console.print(f"[red]✗ SQLite database file not found: {db_path}[/red]")
+            return False
+        
+        if include_data:
+            # Simple file copy for full backup
+            import shutil
+            
+            if compress and output.endswith('.gz'):
+                # Copy and compress
+                import gzip
+                with open(db_path, 'rb') as f_in:
+                    with gzip.open(output, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+            else:
+                # Direct copy
+                shutil.copy2(db_path, output)
+            
+            return True
+        else:
+            # Schema-only backup: use SQLite .schema command
+            cmd = ['sqlite3', str(db_path), '.schema']
+            
+            if compress and output.endswith('.gz'):
+                # Get schema and compress
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if result.returncode == 0:
+                    import gzip
+                    with gzip.open(output, 'wt') as f:
+                        f.write(result.stdout)
+                    return True
+            else:
+                # Direct output to file
+                with open(output, 'w') as f:
+                    result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, 
+                                          text=True, timeout=60)
+                if result.returncode == 0:
+                    return True
+            
+            # Handle errors
+            if result.stderr:
+                console.print(f"[red]sqlite3 error: {result.stderr}[/red]")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ Backup timed out[/red]")
+        return False
+    except FileNotFoundError:
+        console.print("[red]✗ sqlite3 not found. Please install SQLite.[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ SQLite backup failed: {e}[/red]")
+        return False
 
 
 @database_group.command(name='restore')
@@ -211,19 +572,275 @@ def restore_database(input, force):
         rag-cli database restore --input backup.sql
         rag-cli database restore --input backup.sql.gz --force
     """
-    # Restoring database from backup
-    
-    console.print(f"[yellow]Restoring database from: {input}[/yellow]")
-    console.print("[red]Warning: This will overwrite existing data![/red]")
-    
-    if not force:
-        if not confirm_action("Continue with database restore?"):
-            # Database restore cancelled
+    try:
+        # Get configuration
+        config = get_config()
+        
+        console.print(f"[yellow]Restoring database from: {input}[/yellow]")
+        console.print("[red]Warning: This will overwrite existing data![/red]")
+        
+        # Test database connection first
+        db_manager = DatabaseFactory.create_manager(config.database)
+        if not db_manager.test_connection():
+            console.print("[red]✗ Cannot connect to database[/red]")
             return
-    
-    # TODO: Implement actual database restore
-    console.print("[red]✗ Database restore implementation not complete[/red]")
-    # Database restore completed
+        
+        # Check if database has data (unless force is used)
+        if not force:
+            try:
+                with db_manager.get_connection() as conn:
+                    if config.database.driver.startswith('sqlite'):
+                        result = conn.execute(text("""
+                            SELECT COUNT(*) FROM sqlite_master 
+                            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                        """))
+                    else:
+                        result = conn.execute(text("""
+                            SELECT COUNT(*) FROM information_schema.tables 
+                            WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                        """))
+                    table_count = result.scalar()
+                    
+                    if table_count > 0:
+                        console.print(f"[yellow]Database contains {table_count} existing tables[/yellow]")
+                        if not confirm_action("Continue with database restore? This will overwrite existing data."):
+                            console.print("[yellow]Database restore cancelled by user[/yellow]")
+                            return
+            except Exception as e:
+                console.print(f"[yellow]Could not check existing data: {e}[/yellow]")
+                if not confirm_action("Continue with database restore?"):
+                    console.print("[yellow]Database restore cancelled by user[/yellow]")
+                    return
+        
+        # Validate backup file
+        input_path = Path(input)
+        if not input_path.exists():
+            console.print(f"[red]✗ Backup file not found: {input}[/red]")
+            return
+        
+        with create_progress_bar() as progress:
+            task = progress.add_task("Restoring database...", total=None)
+            
+            restore_success = False
+            
+            try:
+                # Handle different database drivers
+                driver = config.database.driver.lower()
+                
+                if driver.startswith('postgresql'):
+                    restore_success = _restore_postgresql(config, input, progress, task)
+                elif driver.startswith('mysql') or driver.startswith('mariadb'):
+                    restore_success = _restore_mysql(config, input, progress, task)
+                elif driver.startswith('sqlite'):
+                    restore_success = _restore_sqlite(config, input, progress, task)
+                else:
+                    console.print(f"[red]✗ Restore not supported for database driver: {driver}[/red]")
+                    return
+                
+                if restore_success:
+                    console.print("[green]✓ Database restored successfully[/green]")
+                    console.print("[dim]Please verify the restored data[/dim]")
+                else:
+                    console.print("[red]✗ Database restore failed[/red]")
+                    
+            except Exception as e:
+                console.print(f"[red]✗ Restore failed: {e}[/red]")
+            finally:
+                progress.remove_task(task)
+                
+    except Exception as e:
+        console.print(f"[red]✗ Failed to restore database: {e}[/red]")
+
+
+def _restore_postgresql(config, input_file, progress, task):
+    """Restore PostgreSQL backup using psql."""
+    try:
+        progress.update(task, description="Running psql restore...")
+        
+        # Check if file is compressed
+        input_path = Path(input_file)
+        is_compressed = input_path.suffix == '.gz'
+        
+        # Build psql command
+        cmd = ['psql']
+        
+        # Connection parameters
+        cmd.extend(['-h', config.database.host])
+        cmd.extend(['-p', str(config.database.port)])
+        cmd.extend(['-U', config.database.user])
+        cmd.extend(['-d', config.database.name])
+        
+        # Environment for password
+        env = subprocess.os.environ.copy()
+        if config.database.password:
+            env['PGPASSWORD'] = config.database.password
+        
+        # Execute restore
+        if is_compressed:
+            # Decompress and pipe to psql
+            import gzip
+            with gzip.open(input_file, 'rt') as f:
+                result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, 
+                                      env=env, text=True, timeout=600)
+        else:
+            # Direct file input
+            with open(input_file, 'r') as f:
+                result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, 
+                                      env=env, text=True, timeout=600)
+        
+        if result.returncode == 0:
+            return True
+        
+        # Handle errors
+        if result.stderr:
+            console.print(f"[red]psql error: {result.stderr}[/red]")
+        return False
+        
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ Restore timed out[/red]")
+        return False
+    except FileNotFoundError:
+        console.print("[red]✗ psql not found. Please install PostgreSQL client tools.[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ PostgreSQL restore failed: {e}[/red]")
+        return False
+
+
+def _restore_mysql(config, input_file, progress, task):
+    """Restore MySQL/MariaDB backup using mysql."""
+    try:
+        progress.update(task, description="Running mysql restore...")
+        
+        # Check if file is compressed
+        input_path = Path(input_file)
+        is_compressed = input_path.suffix == '.gz'
+        
+        # Build mysql command
+        cmd = ['mysql']
+        
+        # Connection parameters
+        cmd.extend(['-h', config.database.host])
+        cmd.extend(['-P', str(config.database.port)])
+        cmd.extend(['-u', config.database.user])
+        
+        if config.database.password:
+            cmd.extend(['-p' + config.database.password])
+        
+        cmd.append(config.database.name)
+        
+        # Execute restore
+        if is_compressed:
+            # Decompress and pipe to mysql
+            import gzip
+            with gzip.open(input_file, 'rt') as f:
+                result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, 
+                                      text=True, timeout=600)
+        else:
+            # Direct file input  
+            with open(input_file, 'r') as f:
+                result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, 
+                                      text=True, timeout=600)
+        
+        if result.returncode == 0:
+            return True
+        
+        # Handle errors
+        if result.stderr:
+            console.print(f"[red]mysql error: {result.stderr}[/red]")
+        return False
+        
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ Restore timed out[/red]")
+        return False
+    except FileNotFoundError:
+        console.print("[red]✗ mysql not found. Please install MySQL client tools.[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ MySQL restore failed: {e}[/red]")
+        return False
+
+
+def _restore_sqlite(config, input_file, progress, task):
+    """Restore SQLite backup."""
+    try:
+        progress.update(task, description="Restoring SQLite database...")
+        
+        # For SQLite, the database "name" is the file path
+        db_path = Path(config.database.name)
+        input_path = Path(input_file)
+        is_compressed = input_path.suffix == '.gz'
+        
+        # Check if input file looks like a full database file or SQL schema
+        if is_compressed:
+            # Check if it's a compressed database file or SQL
+            import gzip
+            with gzip.open(input_file, 'rb') as f:
+                # Read first few bytes to check format
+                header = f.read(16)
+                is_sqlite_db = header.startswith(b'SQLite format 3')
+        else:
+            # Check if it's a SQLite database file or SQL
+            with open(input_file, 'rb') as f:
+                header = f.read(16)
+                is_sqlite_db = header.startswith(b'SQLite format 3')
+        
+        if is_sqlite_db:
+            # Full database file restore - replace the existing file
+            import shutil
+            
+            # Backup existing database
+            if db_path.exists():
+                backup_path = db_path.with_suffix(db_path.suffix + '.backup')
+                shutil.copy2(db_path, backup_path)
+                console.print(f"[dim]Existing database backed up to: {backup_path}[/dim]")
+            
+            if is_compressed:
+                # Decompress to database location
+                import gzip
+                with gzip.open(input_file, 'rb') as f_in:
+                    with open(db_path, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+            else:
+                # Direct copy
+                shutil.copy2(input_file, db_path)
+            
+            return True
+        else:
+            # SQL file restore - execute SQL commands
+            if is_compressed:
+                # Decompress and execute SQL
+                import gzip
+                with gzip.open(input_file, 'rt') as f:
+                    sql_content = f.read()
+            else:
+                # Read SQL file
+                with open(input_file, 'r') as f:
+                    sql_content = f.read()
+            
+            # Execute SQL using sqlite3 command line
+            cmd = ['sqlite3', str(db_path)]
+            
+            result = subprocess.run(cmd, input=sql_content, stderr=subprocess.PIPE, 
+                                  text=True, timeout=300)
+            
+            if result.returncode == 0:
+                return True
+            
+            # Handle errors
+            if result.stderr:
+                console.print(f"[red]sqlite3 error: {result.stderr}[/red]")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ Restore timed out[/red]")
+        return False
+    except FileNotFoundError:
+        console.print("[red]✗ sqlite3 not found. Please install SQLite.[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ SQLite restore failed: {e}[/red]")
+        return False
 
 
 @database_group.command(name='status')
@@ -233,27 +850,97 @@ def database_status():
     Displays information about the database connection,
     schema version, and basic statistics.
     """
-    # Checking database status
-    
     console.print("[yellow]Checking database status...[/yellow]")
     
-    # Create status table
-    table = Table(title="Database Status")
-    table.add_column("Property", style="cyan")
-    table.add_column("Value", style="green")
-    
-    # TODO: Get actual database status
-    config = get_config()
-    table.add_row("Driver", config.database.driver)
-    table.add_row("Host", f"{config.database.host}:{config.database.port}")
-    table.add_row("Database", config.database.name)
-    table.add_row("Connection", "Not tested")
-    table.add_row("Schema Version", "Unknown")
-    table.add_row("Tables", "Unknown")
-    table.add_row("Users Count", "Unknown")
-    
-    console.print(table)
-    # Database status displayed
+    try:
+        # Get configuration
+        config = get_config()
+        
+        # Create database manager
+        db_manager = DatabaseFactory.create_manager(config.database)
+        
+        # Create status table
+        table = Table(title="Database Status")
+        table.add_column("Property", style="cyan")
+        table.add_column("Value", style="green")
+        
+        # Basic configuration
+        table.add_row("Driver", config.database.driver)
+        table.add_row("Host", f"{config.database.host}:{config.database.port}")
+        table.add_row("Database", config.database.name)
+        
+        # Test connection
+        connection_status = "✓ Connected" if db_manager.test_connection() else "✗ Failed"
+        table.add_row("Connection", connection_status)
+        
+        if db_manager.test_connection():
+            try:
+                # Get schema version from Alembic
+                from alembic.migration import MigrationContext
+                from alembic.config import Config as AlembicConfig
+                
+                try:
+                    with db_manager.get_connection() as conn:
+                        context = MigrationContext.configure(conn)
+                        current_rev = context.get_current_revision()
+                        schema_version = current_rev if current_rev else "No migrations applied"
+                except Exception:
+                    schema_version = "Alembic not initialized"
+                
+                table.add_row("Schema Version", schema_version)
+                
+                # Count tables
+                try:
+                    with db_manager.get_connection() as conn:
+                        if config.database.driver.startswith('sqlite'):
+                            result = conn.execute(text("""
+                                SELECT COUNT(*) FROM sqlite_master 
+                                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                            """))
+                        else:
+                            result = conn.execute(text("""
+                                SELECT COUNT(*) FROM information_schema.tables 
+                                WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                            """))
+                        table_count = result.scalar()
+                        table.add_row("Tables", str(table_count))
+                except Exception as e:
+                    table.add_row("Tables", f"Error: {e}")
+                
+                # Count users
+                try:
+                    with db_manager.get_connection() as conn:
+                        result = conn.execute(text("SELECT COUNT(*) FROM users"))
+                        user_count = result.scalar()
+                        table.add_row("Users Count", str(user_count))
+                except Exception:
+                    table.add_row("Users Count", "Users table not found")
+                
+                # Pool status
+                pool_status = db_manager.get_pool_status()
+                if pool_status and 'error' not in pool_status:
+                    pool_info = []
+                    if 'size' in pool_status:
+                        pool_info.append(f"Size: {pool_status['size']}")
+                    if 'checked_out' in pool_status:
+                        pool_info.append(f"Active: {pool_status['checked_out']}")
+                    if 'checked_in' in pool_status:
+                        pool_info.append(f"Available: {pool_status['checked_in']}")
+                    
+                    table.add_row("Connection Pool", ", ".join(pool_info) if pool_info else "Available")
+                else:
+                    table.add_row("Connection Pool", "Status unavailable")
+                    
+            except Exception as e:
+                table.add_row("Schema Version", f"Error: {e}")
+                table.add_row("Tables", "Unable to query")
+                table.add_row("Users Count", "Unable to query")
+        
+        console.print(table)
+        console.print("[green]✓ Database status check completed[/green]")
+        
+    except Exception as e:
+        console.print(f"[red]✗ Failed to get database status: {e}[/red]")
 
 
 @database_group.command(name='test')
@@ -263,29 +950,129 @@ def test_database():
     Tests the database connection and basic operations
     to ensure everything is working correctly.
     """
-    # Testing database connectivity
-    
     console.print("[yellow]Testing database connectivity...[/yellow]")
     
-    with create_progress_bar() as progress:
-        # Test connection
-        task = progress.add_task("Testing connection...", total=None)
-        import time
-        time.sleep(1)
+    try:
+        # Get configuration and create database manager
+        config = get_config()
+        db_manager = DatabaseFactory.create_manager(config.database)
         
-        progress.update(task, description="Testing queries...")
-        time.sleep(1)
+        test_results = []
         
-        progress.update(task, description="Testing transactions...")
-        time.sleep(1)
+        with create_progress_bar() as progress:
+            # Test 1: Basic Connection
+            task = progress.add_task("Testing basic connection...", total=None)
+            
+            try:
+                connection_success = db_manager.test_connection()
+                if connection_success:
+                    test_results.append(("Basic Connection", "✓ PASS", "green"))
+                else:
+                    test_results.append(("Basic Connection", "✗ FAIL", "red"))
+            except Exception as e:
+                test_results.append(("Basic Connection", f"✗ FAIL: {e}", "red"))
+            
+            # Test 2: Query Execution
+            progress.update(task, description="Testing query execution...")
+            
+            try:
+                with db_manager.get_connection() as conn:
+                    result = conn.execute(text("SELECT 1 as test_value"))
+                    row = result.fetchone()
+                    if row and row[0] == 1:
+                        test_results.append(("Query Execution", "✓ PASS", "green"))
+                    else:
+                        test_results.append(("Query Execution", "✗ FAIL: Unexpected result", "red"))
+            except Exception as e:
+                test_results.append(("Query Execution", f"✗ FAIL: {e}", "red"))
+            
+            # Test 3: Transaction Support
+            progress.update(task, description="Testing transaction support...")
+            
+            try:
+                with db_manager.get_transaction() as conn:
+                    # Test transaction by creating a temporary table and rolling back
+                    temp_table_name = f"test_temp_table_{int(datetime.now().timestamp())}"
+                    
+                    # Create a temporary table
+                    conn.execute(text(f"""
+                        CREATE TEMPORARY TABLE {temp_table_name} (
+                            id INTEGER PRIMARY KEY,
+                            test_data VARCHAR(50)
+                        )
+                    """))
+                    
+                    # Insert test data
+                    conn.execute(text(f"""
+                        INSERT INTO {temp_table_name} (test_data) VALUES ('test')
+                    """))
+                    
+                    # Verify data exists
+                    result = conn.execute(text(f"SELECT COUNT(*) FROM {temp_table_name}"))
+                    count = result.scalar()
+                    
+                    if count == 1:
+                        test_results.append(("Transaction Support", "✓ PASS", "green"))
+                    else:
+                        test_results.append(("Transaction Support", "✗ FAIL: Transaction data error", "red"))
+                        
+            except Exception as e:
+                test_results.append(("Transaction Support", f"✗ FAIL: {e}", "red"))
+            
+            # Test 4: Connection Pool
+            progress.update(task, description="Testing connection pool...")
+            
+            try:
+                pool_status = db_manager.get_pool_status()
+                if pool_status and 'error' not in pool_status:
+                    test_results.append(("Connection Pool", "✓ PASS", "green"))
+                else:
+                    test_results.append(("Connection Pool", "⚠ WARNING: Pool status unavailable", "yellow"))
+            except Exception as e:
+                test_results.append(("Connection Pool", f"✗ FAIL: {e}", "red"))
+            
+            # Test 5: Health Check
+            progress.update(task, description="Testing health check...")
+            
+            try:
+                health_result = db_manager.health_check()
+                if health_result.get('status') == 'healthy':
+                    test_results.append(("Health Check", "✓ PASS", "green"))
+                else:
+                    test_results.append(("Health Check", f"✗ FAIL: {health_result.get('message', 'Unknown error')}", "red"))
+            except Exception as e:
+                test_results.append(("Health Check", f"✗ FAIL: {e}", "red"))
+            
+            progress.remove_task(task)
         
-        progress.remove_task(task)
-    
-    # TODO: Implement actual database tests
-    console.print("[green]✓ Connection test passed[/green]")
-    console.print("[red]✗ Other database tests not implemented[/red]")
-    
-    console.print("[dim]Database connectivity test completed[/dim]")
+        # Display results
+        console.print("\n[bold]Test Results:[/bold]")
+        
+        table = Table()
+        table.add_column("Test", style="cyan")
+        table.add_column("Result", style="white")
+        
+        passed_tests = 0
+        total_tests = len(test_results)
+        
+        for test_name, result, color in test_results:
+            table.add_row(test_name, f"[{color}]{result}[/{color}]")
+            if "PASS" in result:
+                passed_tests += 1
+        
+        console.print(table)
+        
+        # Summary
+        if passed_tests == total_tests:
+            console.print(f"\n[green]✅ All {total_tests} tests passed![/green]")
+        else:
+            failed_tests = total_tests - passed_tests
+            console.print(f"\n[yellow]⚠ {passed_tests}/{total_tests} tests passed, {failed_tests} failed[/yellow]")
+        
+        console.print("[dim]Database connectivity test completed[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]✗ Failed to run database tests: {e}[/red]")
 
 
 def _create_default_roles_and_permissions(db_manager):

@@ -231,6 +231,60 @@ class DocumentEventCollector:
             
         except Exception as e:
             logger.error(f"Failed to log document deletion: {e}")
+    
+    async def log_document_reprocess(
+        self,
+        document_id: str,
+        filename: str,
+        user_id: str,
+        old_chunk_count: int,
+        new_chunk_count: int,
+        old_vector_count: int,
+        new_vector_count: int,
+        processing_time_ms: int,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Log document reprocessing event."""
+        try:
+            db = await self._get_db()
+            
+            # Prepare reprocessing metadata
+            reprocess_metadata = {
+                "old_chunk_count": old_chunk_count,
+                "new_chunk_count": new_chunk_count,
+                "old_vector_count": old_vector_count,
+                "new_vector_count": new_vector_count,
+                "chunk_delta": new_chunk_count - old_chunk_count,
+                "vector_delta": new_vector_count - old_vector_count
+            }
+            
+            if metadata:
+                reprocess_metadata.update(metadata)
+            
+            await db.log_document_event(
+                document_id=document_id,
+                filename=filename,
+                event_type="reprocess",
+                user_id=user_id,
+                processing_time_ms=processing_time_ms,
+                metadata=reprocess_metadata
+            )
+            
+            # Also log as system event
+            await db.log_system_event(
+                event_type="document_reprocessed",
+                user_id=user_id,
+                description=f"Reprocessed document '{filename}'",
+                details={
+                    "document_id": document_id,
+                    "processing_time_ms": processing_time_ms,
+                    "chunks_changed": new_chunk_count - old_chunk_count,
+                    "vectors_changed": new_vector_count - old_vector_count
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to log document reprocessing: {e}")
 
 
 class QueryEventCollector:

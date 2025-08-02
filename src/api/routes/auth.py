@@ -9,7 +9,7 @@ import asyncio
 
 from ...auth.dependencies import MockUser
 from ...auth.sqlite_auth import auth_manager
-from ..schemas import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse
+from ..schemas import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse, RefreshTokenRequest
 from ...metrics.collectors import session_collector
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -132,12 +132,12 @@ async def logout(token: HTTPAuthorizationCredentials = Depends(security)) -> Dic
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(refresh_token: str) -> TokenResponse:
+async def refresh_token(request: RefreshTokenRequest) -> TokenResponse:
     """
     Refresh JWT access token using refresh token.
     
     Args:
-        refresh_token: Valid refresh token
+        request: RefreshTokenRequest containing the refresh token
         
     Returns:
         TokenResponse: New access token and refresh token
@@ -148,13 +148,28 @@ async def refresh_token(refresh_token: str) -> TokenResponse:
     # Simulate async token refresh process
     await asyncio.sleep(0.1)
     
-    # TODO: Implement actual token refresh logic
-    if refresh_token == "demo_refresh_token":
+    # Verify the refresh token using auth_manager
+    session_data = auth_manager.verify_token(request.refresh_token)
+    
+    if session_data:
+        # Extract user data for creating new token
+        user_data = {
+            'id': session_data['user_id'],
+            'username': session_data['username'],
+            'role': session_data['role']
+        }
+        
+        # Invalidate the old refresh token (token rotation for security)
+        auth_manager.logout(request.refresh_token)
+        
+        # Create new token
+        new_token = auth_manager.create_token(user_data)
+        
         return TokenResponse(
-            access_token="new_access_token",
-            refresh_token="new_refresh_token",
+            access_token=new_token,
+            refresh_token=new_token,  # Using same token for both (existing pattern)
             token_type="bearer",
-            expires_in=3600
+            expires_in=86400  # 24 hours
         )
     
     raise HTTPException(

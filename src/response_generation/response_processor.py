@@ -688,7 +688,7 @@ class ResponseProcessor(LoggerMixin):
         
         # Normalize quotes
         content = re.sub(r'["""]', '"', content)
-        content = re.sub(r'[''']', "'", content)
+        content = re.sub(r"['']", "'", content)
         
         # Normalize dashes
         content = re.sub(r'[—–]', '-', content)

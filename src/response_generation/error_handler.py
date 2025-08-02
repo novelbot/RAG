@@ -4,7 +4,7 @@ Comprehensive Error Handling and Timeout Management for LLM Calls.
 
 import time
 import asyncio
-from typing import Dict, List, Any, Optional, Callable, Union
+from typing import Dict, List, Any, Optional, Callable, Union, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timezone, timedelta

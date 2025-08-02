@@ -2,14 +2,16 @@
 Database base models and configuration.
 """
 
-from typing import Generator
+from typing import Generator, TYPE_CHECKING
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, DateTime, func, create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timezone
 
-from .config import get_config
 from .logging import get_logger
+
+if TYPE_CHECKING:
+    from .config import AppConfig
 
 logger = get_logger(__name__)
 
@@ -25,6 +27,7 @@ def init_database():
     """Initialize database connection and session maker."""
     global SessionLocal, engine
     
+    from .config import get_config
     config = get_config()
     
     # Build database URL
@@ -72,6 +75,52 @@ def get_db() -> Generator[Session, None, None]:
         raise
     finally:
         db.close()
+
+
+def get_session() -> Session:
+    """
+    Get a database session (for non-FastAPI usage).
+    
+    Returns:
+        Session: SQLAlchemy session (caller must close)
+    """
+    global SessionLocal
+    
+    if SessionLocal is None:
+        init_database()
+    
+    if SessionLocal is None:
+        raise RuntimeError("Failed to initialize database session")
+    
+    return SessionLocal()
+
+
+def get_db_session() -> Generator[Session, None, None]:
+    """
+    Alias for get_db() for backward compatibility.
+    
+    Yields:
+        Session: SQLAlchemy session
+    """
+    yield from get_db()
+
+
+def get_db(database_url: str = None):
+    """
+    Get database engine or session based on usage context.
+    
+    Args:
+        database_url: Optional database URL for custom connection
+        
+    Returns:
+        Engine or Session based on context
+    """
+    if database_url:
+        # Return engine for custom database URL
+        return create_engine(database_url, pool_pre_ping=True)
+    else:
+        # Return session generator for default database
+        return get_db_session()
 
 
 class TimestampMixin:

@@ -245,10 +245,9 @@ class RAGCollectionSchema(LoggerMixin):
         
         config.add_field(FieldConfig(
             name="group_ids",
-            data_type=MilvusDataType.ARRAY,
-            description="Group IDs for access control",
-            element_type=MilvusDataType.VARCHAR,
-            max_capacity=50
+            data_type=MilvusDataType.VARCHAR,
+            description="Group IDs for access control (comma-separated)",
+            max_length=500
         ))
         
         config.add_field(FieldConfig(

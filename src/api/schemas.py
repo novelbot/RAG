@@ -41,6 +41,11 @@ class RegisterResponse(BaseAPISchema):
     username: str = Field(..., description="Registered username")
 
 
+class RefreshTokenRequest(BaseAPISchema):
+    """Refresh token request schema"""
+    refresh_token: str = Field(..., description="Valid refresh token to exchange for new tokens")
+
+
 class TokenResponse(BaseAPISchema):
     """Token response schema"""
     access_token: str = Field(..., description="JWT access token")
@@ -58,6 +63,21 @@ class UserResponse(BaseAPISchema):
     is_active: bool = Field(..., description="Whether user is active")
 
 
+# Conversation Context Schemas
+class ConversationTurn(BaseAPISchema):
+    """Single conversation turn schema"""
+    user_query: str = Field(..., description="User's query")
+    assistant_response: str = Field(..., description="Assistant's response")
+    timestamp: Optional[datetime] = Field(None, description="Turn timestamp")
+
+
+class ConversationContext(BaseAPISchema):
+    """Conversation context schema"""
+    session_id: Optional[str] = Field(None, description="Conversation session ID")
+    recent_turns: List[ConversationTurn] = Field(default_factory=list, description="Recent conversation turns")
+    max_context_turns: int = Field(5, ge=1, le=10, description="Maximum number of turns to include")
+
+
 # Query Processing Schemas
 class QueryRequest(BaseAPISchema):
     """Query request schema"""
@@ -65,6 +85,11 @@ class QueryRequest(BaseAPISchema):
     max_results: int = Field(10, ge=1, le=100, description="Maximum number of results to return")
     filters: Optional[Dict[str, Any]] = Field(None, description="Optional search filters")
     include_metadata: bool = Field(True, description="Include document metadata in results")
+    
+    # Conversation context fields
+    session_id: Optional[str] = Field(None, description="Conversation session ID for continuity")
+    conversation_context: Optional[ConversationContext] = Field(None, description="Previous conversation context")
+    use_context: bool = Field(False, description="Whether to use conversation context for this query")
 
 
 class SearchResult(BaseAPISchema):
@@ -352,6 +377,231 @@ class ServiceStatusResponse(BaseAPISchema):
     llm_providers: Optional[Dict[str, LLMProviderStatus]] = Field(None, description="LLM provider statuses")
     overall_status: Literal["operational", "degraded", "outage"] = Field(..., description="Overall system status")
     last_updated: datetime = Field(..., description="Last status update timestamp")
+
+
+# RAG Chat Endpoint Schemas
+class ChatMessage(BaseAPISchema):
+    """Individual message in a chat conversation"""
+    role: Literal["user", "assistant"] = Field(..., description="Message sender role")
+    content: str = Field(..., min_length=1, description="Message content")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Message timestamp")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional message metadata")
+
+
+class ChatConversation(BaseAPISchema):
+    """Chat conversation metadata"""
+    id: str = Field(..., description="Unique conversation identifier")
+    messages: List[ChatMessage] = Field(default_factory=list, description="Conversation messages")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Conversation creation time")
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Last update time")
+    user_id: str = Field(..., description="User who owns this conversation")
+    total_messages: int = Field(0, ge=0, description="Total number of messages in conversation")
+
+
+class ChatRequest(BaseAPISchema):
+    """Chat request schema for RAG-based conversation"""
+    message: str = Field(..., min_length=1, max_length=2000, description="User message/question")
+    conversation_id: Optional[str] = Field(None, description="Existing conversation ID to continue")
+    
+    # Search parameters
+    max_results: int = Field(5, ge=1, le=20, description="Maximum number of documents to retrieve")
+    search_filters: Optional[Dict[str, Any]] = Field(None, description="Optional search filters")
+    
+    # Context management
+    use_conversation_context: bool = Field(True, description="Whether to include conversation history in context")
+    max_context_turns: int = Field(5, ge=1, le=10, description="Maximum number of previous turns to include in context")
+    
+    # Response preferences
+    include_sources: bool = Field(True, description="Whether to include source documents in response")
+    response_format: Literal["detailed", "concise"] = Field("detailed", description="Preferred response format")
+
+
+class ChatSearchMetadata(BaseAPISchema):
+    """Metadata about the search performed for chat"""
+    query_used: str = Field(..., description="Actual search query used (may be modified from user input)")
+    documents_found: int = Field(..., ge=0, description="Number of documents found")
+    search_time_ms: float = Field(..., ge=0, description="Search execution time in milliseconds")
+    filters_applied: Optional[Dict[str, Any]] = Field(None, description="Search filters that were applied")
+
+
+class ChatConversationMetadata(BaseAPISchema):
+    """Metadata about the conversation context"""
+    conversation_id: str = Field(..., description="Conversation identifier")
+    total_messages: int = Field(..., ge=0, description="Total messages in conversation")
+    context_messages_used: int = Field(..., ge=0, description="Number of previous messages included in context")
+    is_new_conversation: bool = Field(..., description="Whether this was a new conversation")
+
+
+class ChatResponse(BaseAPISchema):
+    """Chat response schema with AI response and supporting information"""
+    message: str = Field(..., description="AI-generated response message")
+    conversation_id: str = Field(..., description="Conversation identifier")
+    
+    # Source information
+    sources: List[AnswerSource] = Field(default_factory=list, description="Source documents used for generating response")
+    
+    # Metadata
+    conversation_metadata: ChatConversationMetadata = Field(..., description="Conversation context information")
+    search_metadata: ChatSearchMetadata = Field(..., description="Search operation information")
+    
+    # Response quality indicators
+    confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="AI confidence in response accuracy")
+    has_context: bool = Field(..., description="Whether conversation context was used")
+    
+    # Processing information
+    response_time_ms: float = Field(..., ge=0, description="Total response generation time in milliseconds")
+    user_id: str = Field(..., description="User who made the request")
+
+
+class ChatError(BaseAPISchema):
+    """Chat-specific error response schema"""
+    error_type: Literal["search_failed", "llm_unavailable", "conversation_not_found", "invalid_request"] = Field(..., description="Type of error encountered")
+    message: str = Field(..., description="Human-readable error message")
+    conversation_id: Optional[str] = Field(None, description="Conversation ID if applicable")
+    retry_suggestions: List[str] = Field(default_factory=list, description="Suggestions for resolving the error")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Error timestamp")
+
+
+# Episode-Specific Chat Schemas
+class EpisodeChatRequest(BaseAPISchema):
+    """Episode-aware chat request schema that combines chat and episode functionality"""
+    message: str = Field(..., min_length=1, max_length=2000, description="User message/question about episodes")
+    conversation_id: Optional[str] = Field(None, description="Existing conversation ID to continue")
+    
+    # Episode filtering parameters
+    episode_ids: Optional[List[int]] = Field(None, description="Filter search to specific episode IDs")
+    novel_ids: Optional[List[int]] = Field(None, description="Filter search to specific novel IDs") 
+    primary_episode_id: Optional[int] = Field(None, description="Primary episode this conversation focuses on")
+    primary_novel_id: Optional[int] = Field(None, description="Primary novel this conversation focuses on")
+    
+    # Search and context parameters
+    max_episodes: int = Field(5, ge=1, le=20, description="Maximum number of episodes to use as context")
+    max_results: int = Field(5, ge=1, le=20, description="Maximum number of search results per episode")
+    
+    # Context management
+    use_conversation_context: bool = Field(True, description="Whether to include conversation history in context")
+    max_context_turns: int = Field(5, ge=1, le=10, description="Maximum number of previous turns to include in context")
+    
+    # Episode-specific options
+    include_episode_metadata: bool = Field(True, description="Whether to include episode metadata (characters, timeline)")
+    episode_sort_order: Literal["episode_number", "similarity", "publication_date"] = Field("episode_number", description="How to sort episode results")
+    
+    # Response preferences
+    include_sources: bool = Field(True, description="Whether to include source episodes in response")
+    response_format: Literal["detailed", "concise"] = Field("detailed", description="Preferred response format")
+
+
+class EpisodeConversationMetadata(BaseAPISchema):
+    """Extended conversation metadata with episode information"""
+    conversation_id: str = Field(..., description="Conversation identifier")
+    total_messages: int = Field(..., ge=0, description="Total messages in conversation")
+    context_messages_used: int = Field(..., ge=0, description="Number of previous messages included in context")
+    is_new_conversation: bool = Field(..., description="Whether this was a new conversation")
+    
+    # Episode-specific metadata
+    episodes_discussed: List[int] = Field(default_factory=list, description="Episode IDs discussed in this conversation")
+    novels_discussed: List[int] = Field(default_factory=list, description="Novel IDs discussed in this conversation")
+    primary_episode_id: Optional[int] = Field(None, description="Main episode focus of conversation")
+    primary_novel_id: Optional[int] = Field(None, description="Main novel focus of conversation")
+    
+    # Context information
+    episodes_used_for_context: List[int] = Field(default_factory=list, description="Episode IDs used for generating current response")
+    conversation_scope: Literal["general", "episode_specific", "novel_specific"] = Field("general", description="Scope of the conversation")
+
+
+class EpisodeSearchMetadata(BaseAPISchema):
+    """Extended search metadata for episode-aware searches"""
+    query_used: str = Field(..., description="Actual search query used (may be enhanced from user input)")
+    episodes_found: int = Field(..., ge=0, description="Number of episodes found")
+    novels_found: int = Field(..., ge=0, description="Number of different novels found")
+    search_time_ms: float = Field(..., ge=0, description="Search execution time in milliseconds")
+    
+    # Episode filtering information
+    episode_ids_filter: Optional[List[int]] = Field(None, description="Episode IDs used for filtering")
+    novel_ids_filter: Optional[List[int]] = Field(None, description="Novel IDs used for filtering")
+    sort_order_applied: str = Field(..., description="Sort order that was applied")
+    
+    # Context enhancement
+    conversation_enhanced_query: bool = Field(..., description="Whether query was enhanced using conversation context")
+    episode_context_used: bool = Field(..., description="Whether episode context was used to improve search")
+
+
+class EpisodeSource(BaseAPISchema):
+    """Episode source information for chat responses"""
+    episode_id: int = Field(..., description="Episode ID")
+    episode_number: int = Field(..., description="Episode number within novel")
+    episode_title: str = Field(..., description="Episode title")
+    novel_id: int = Field(..., description="Novel ID this episode belongs to")
+    
+    # Content information
+    excerpt: str = Field(..., description="Relevant excerpt from episode")
+    relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score for this episode")
+    similarity_score: float = Field(..., ge=0.0, le=1.0, description="Vector similarity score")
+    
+    # Episode metadata
+    publication_date: Optional[str] = Field(None, description="Episode publication date (ISO format)")
+    content_length: Optional[int] = Field(None, ge=0, description="Total episode content length")
+    characters_mentioned: List[str] = Field(default_factory=list, description="Characters mentioned in this episode")
+    
+    # Context information
+    used_for_context: bool = Field(..., description="Whether this episode was used for generating the response")
+    context_priority: int = Field(..., ge=1, description="Priority order when used for context")
+
+
+class EpisodeChatResponse(BaseAPISchema):
+    """Episode-aware chat response with enhanced metadata"""
+    message: str = Field(..., description="AI-generated response message")
+    conversation_id: str = Field(..., description="Conversation identifier")
+    
+    # Episode sources instead of generic sources
+    episode_sources: List[EpisodeSource] = Field(default_factory=list, description="Episode sources used for generating response")
+    
+    # Enhanced metadata
+    conversation_metadata: EpisodeConversationMetadata = Field(..., description="Conversation context information with episode data")
+    search_metadata: EpisodeSearchMetadata = Field(..., description="Episode search operation information")
+    
+    # Episode-specific information
+    episode_metadata: Dict[str, Any] = Field(default_factory=dict, description="Episode-specific metadata (characters, timeline, etc.)")
+    timeline_position: Optional[str] = Field(None, description="Where in the story timeline this response relates to")
+    character_context: List[str] = Field(default_factory=list, description="Characters relevant to this response")
+    
+    # Response quality indicators
+    confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="AI confidence in response accuracy")
+    episode_relevance_score: float = Field(..., ge=0.0, le=1.0, description="How relevant the response is to episode content")
+    has_context: bool = Field(..., description="Whether conversation context was used")
+    
+    # Processing information
+    response_time_ms: float = Field(..., ge=0, description="Total response generation time in milliseconds")
+    user_id: str = Field(..., description="User who made the request")
+
+
+class EpisodeChatConversation(ChatConversation):
+    """Extended conversation model with episode associations"""
+    # Episode associations
+    episodes_discussed: List[int] = Field(default_factory=list, description="Episode IDs discussed in this conversation")
+    novels_discussed: List[int] = Field(default_factory=list, description="Novel IDs discussed in this conversation")
+    primary_episode_id: Optional[int] = Field(None, description="Main episode focus of conversation")
+    primary_novel_id: Optional[int] = Field(None, description="Main novel focus of conversation")
+    
+    # Conversation scope and context
+    conversation_scope: Literal["general", "episode_specific", "novel_specific"] = Field("general", description="Scope of the conversation")
+    episode_timeline_position: Optional[str] = Field(None, description="Position in story timeline")
+    characters_discussed: List[str] = Field(default_factory=list, description="Characters mentioned in conversation")
+    
+    # Episode-specific metadata
+    episode_context_summary: Optional[str] = Field(None, description="Summary of episode context discussed")
+    last_episode_referenced: Optional[int] = Field(None, description="Last episode ID specifically referenced")
+
+
+class EpisodeChatError(BaseAPISchema):
+    """Episode chat-specific error response schema"""
+    error_type: Literal["episode_not_found", "novel_not_found", "search_failed", "llm_unavailable", "conversation_not_found", "invalid_request"] = Field(..., description="Type of error encountered")
+    message: str = Field(..., description="Human-readable error message")
+    conversation_id: Optional[str] = Field(None, description="Conversation ID if applicable")
+    episode_id: Optional[int] = Field(None, description="Episode ID if applicable")
+    novel_id: Optional[int] = Field(None, description="Novel ID if applicable")
+    retry_suggestions: List[str] = Field(default_factory=list, description="Suggestions for resolving the error")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Error timestamp")
 
 
 # Common Response Schemas

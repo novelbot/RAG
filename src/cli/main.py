@@ -30,8 +30,14 @@ class CLIContext:
         """Load configuration from file or use default."""
         try:
             if self.config_file:
-                # TODO: Load specific config file
-                self.config = get_config()
+                # Load specific config file
+                if Path(self.config_file).exists():
+                    # Set environment variable for config file path
+                    os.environ['CONFIG_FILE'] = str(self.config_file)
+                    self.config = get_config()
+                else:
+                    console.print(f"[yellow]Config file {self.config_file} not found, using default config[/yellow]")
+                    self.config = get_config()
             else:
                 self.config = get_config()
             

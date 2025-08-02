@@ -465,18 +465,17 @@ class VectorSearchEngine(LoggerMixin):
                 )
     
     def _get_collection(self, collection_name: str) -> MilvusCollection:
-        """Get Milvus collection instance."""
+        """Get Milvus collection instance with proper metadata management."""
         try:
-            # For now, we need to create a proper MilvusCollection wrapper
-            # This is a temporary solution - ideally MilvusClient should provide this
-            from src.milvus.schema import RAGCollectionSchema
+            # Get collection metadata from Milvus
+            metadata = self._get_collection_metadata(collection_name)
             
-            # Create a minimal schema for existing collection
-            # TODO: This should be retrieved from the actual collection metadata
+            # Create schema using actual metadata
+            from src.milvus.schema import RAGCollectionSchema
             schema = RAGCollectionSchema(
                 collection_name=collection_name,
-                vector_dim=768,  # Default dimension - should be retrieved from collection
-                description=f"Collection {collection_name}"
+                vector_dim=metadata.get('vector_dim', 768),
+                description=metadata.get('description', f"Collection {collection_name}")
             )
             
             # Create MilvusCollection wrapper
@@ -488,6 +487,318 @@ class VectorSearchEngine(LoggerMixin):
             return milvus_collection
         except Exception as e:
             raise SearchError(f"Failed to get collection '{collection_name}': {e}")
+    
+    def _get_collection_metadata(self, collection_name: str) -> Dict[str, Any]:
+        """
+        Retrieve collection metadata from Milvus with caching and validation.
+        
+        Returns comprehensive metadata including:
+        - Schema information (fields, types, dimensions)
+        - Collection statistics (entity count, size)
+        - Index information
+        - Performance metrics
+        """
+        try:
+            # Check metadata cache first
+            if hasattr(self, '_metadata_cache'):
+                cache_key = f"{collection_name}_metadata"
+                cached_metadata = self._metadata_cache.get(cache_key)
+                if cached_metadata and self._is_metadata_cache_valid(cache_key):
+                    self.logger.debug(f"Using cached metadata for collection: {collection_name}")
+                    return cached_metadata
+            else:
+                self._metadata_cache = {}
+                self._cache_timestamps = {}
+            
+            # Retrieve fresh metadata from Milvus
+            metadata = self._fetch_collection_metadata(collection_name)
+            
+            # Cache the metadata with timestamp
+            cache_key = f"{collection_name}_metadata"
+            self._metadata_cache[cache_key] = metadata
+            self._cache_timestamps[cache_key] = time.time()
+            
+            self.logger.info(f"Retrieved and cached metadata for collection: {collection_name}")
+            return metadata
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get collection metadata for '{collection_name}': {e}")
+            # Return fallback metadata to prevent complete failure
+            return self._get_fallback_metadata(collection_name)
+    
+    def _fetch_collection_metadata(self, collection_name: str) -> Dict[str, Any]:
+        """Fetch collection metadata directly from Milvus."""
+        try:
+            # Check if collection exists
+            if not self.milvus_client.has_collection(collection_name):
+                raise SearchError(f"Collection '{collection_name}' does not exist")
+            
+            # Get pymilvus Collection object for detailed schema access
+            collection = self.milvus_client.get_collection(collection_name)
+            
+            # Extract schema information
+            schema_info = self._extract_schema_info(collection)
+            
+            # Get collection statistics
+            stats_info = self._extract_collection_stats(collection)
+            
+            # Get index information
+            index_info = self._extract_index_info(collection)
+            
+            # Combine all metadata
+            metadata = {
+                **schema_info,
+                **stats_info,
+                **index_info,
+                'collection_name': collection_name,
+                'metadata_version': '1.0',
+                'last_updated': time.time()
+            }
+            
+            return metadata
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching metadata for collection '{collection_name}': {e}")
+            raise SearchError(f"Failed to fetch collection metadata: {e}")
+    
+    def _extract_schema_info(self, collection) -> Dict[str, Any]:
+        """Extract schema information from pymilvus Collection object."""
+        try:
+            schema = collection.schema
+            schema_info = {
+                'description': schema.description or f"Collection {collection.name}",
+                'fields': [],
+                'vector_fields': [],
+                'scalar_fields': [],
+                'primary_field': None,
+                'vector_dim': None,
+                'auto_id': schema.auto_id if hasattr(schema, 'auto_id') else False
+            }
+            
+            # Process each field in the schema
+            for field in schema.fields:
+                field_info = {
+                    'name': field.name,
+                    'type': str(field.dtype),
+                    'is_primary': field.is_primary if hasattr(field, 'is_primary') else False,
+                    'description': getattr(field, 'description', ''),
+                }
+                
+                # Add type-specific parameters
+                if hasattr(field, 'params') and field.params:
+                    field_info['params'] = field.params
+                
+                if hasattr(field, 'max_length'):
+                    field_info['max_length'] = field.max_length
+                
+                # Identify vector fields and their dimensions
+                if 'VECTOR' in str(field.dtype):
+                    field_info['dimension'] = getattr(field, 'dim', None)
+                    schema_info['vector_fields'].append(field_info)
+                    
+                    # Set primary vector dimension (first vector field or largest)
+                    if schema_info['vector_dim'] is None or (
+                        field_info.get('dimension', 0) > schema_info['vector_dim']
+                    ):
+                        schema_info['vector_dim'] = field_info.get('dimension', 768)
+                else:
+                    schema_info['scalar_fields'].append(field_info)
+                
+                # Identify primary field
+                if field_info['is_primary']:
+                    schema_info['primary_field'] = field_info
+                
+                schema_info['fields'].append(field_info)
+            
+            # Fallback vector dimension if not found
+            if schema_info['vector_dim'] is None:
+                schema_info['vector_dim'] = 768
+                self.logger.warning(f"Could not determine vector dimension for collection {collection.name}, using default 768")
+            
+            return schema_info
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting schema info: {e}")
+            return {
+                'description': f"Collection {collection.name}",
+                'fields': [],
+                'vector_fields': [],
+                'scalar_fields': [],
+                'primary_field': None,
+                'vector_dim': 768,
+                'auto_id': False
+            }
+    
+    def _extract_collection_stats(self, collection) -> Dict[str, Any]:
+        """Extract collection statistics."""
+        try:
+            stats_info = {
+                'num_entities': 0,
+                'is_empty': True,
+                'num_partitions': 0,
+                'partition_names': []
+            }
+            
+            # Get entity count
+            try:
+                stats_info['num_entities'] = collection.num_entities
+                stats_info['is_empty'] = collection.is_empty
+            except Exception as e:
+                self.logger.warning(f"Could not get entity count: {e}")
+            
+            # Get partition information
+            try:
+                partitions = collection.partitions
+                stats_info['num_partitions'] = len(partitions)
+                stats_info['partition_names'] = [p.name for p in partitions]
+            except Exception as e:
+                self.logger.warning(f"Could not get partition info: {e}")
+            
+            return stats_info
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting collection stats: {e}")
+            return {
+                'num_entities': 0,
+                'is_empty': True,
+                'num_partitions': 0,
+                'partition_names': []
+            }
+    
+    def _extract_index_info(self, collection) -> Dict[str, Any]:
+        """Extract index information from collection."""
+        try:
+            index_info = {
+                'indexes': [],
+                'has_vector_index': False,
+                'index_types': [],
+                'metric_types': []
+            }
+            
+            # Get index information
+            try:
+                indexes = collection.indexes
+                for index in indexes:
+                    idx_info = {
+                        'field_name': getattr(index, 'field_name', 'unknown'),
+                        'index_type': 'unknown',
+                        'metric_type': 'unknown',
+                        'params': {}
+                    }
+                    
+                    # Extract index parameters if available
+                    if hasattr(index, 'params') and index.params:
+                        params = index.params
+                        idx_info['index_type'] = params.get('index_type', 'unknown')
+                        idx_info['metric_type'] = params.get('metric_type', 'unknown')
+                        idx_info['params'] = params.get('params', {})
+                    
+                    index_info['indexes'].append(idx_info)
+                    
+                    # Track index types and metrics
+                    if idx_info['index_type'] not in index_info['index_types']:
+                        index_info['index_types'].append(idx_info['index_type'])
+                    
+                    if idx_info['metric_type'] not in index_info['metric_types']:
+                        index_info['metric_types'].append(idx_info['metric_type'])
+                    
+                    # Check if this is a vector index
+                    if 'vector' in idx_info['field_name'].lower() or 'embedding' in idx_info['field_name'].lower():
+                        index_info['has_vector_index'] = True
+                        
+            except Exception as e:
+                self.logger.warning(f"Could not get index info: {e}")
+            
+            return index_info
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting index info: {e}")
+            return {
+                'indexes': [],
+                'has_vector_index': False,
+                'index_types': [],
+                'metric_types': []
+            }
+    
+    def _is_metadata_cache_valid(self, cache_key: str) -> bool:
+        """Check if cached metadata is still valid."""
+        if not hasattr(self, '_cache_timestamps') or cache_key not in self._cache_timestamps:
+            return False
+        
+        cache_age = time.time() - self._cache_timestamps[cache_key]
+        cache_ttl = getattr(self.config, 'metadata_cache_ttl', 300)  # 5 minutes default
+        
+        return cache_age < cache_ttl
+    
+    def _get_fallback_metadata(self, collection_name: str) -> Dict[str, Any]:
+        """Get fallback metadata when retrieval fails."""
+        return {
+            'collection_name': collection_name,
+            'description': f"Collection {collection_name}",
+            'vector_dim': 768,  # Default dimension
+            'fields': [],
+            'vector_fields': [],
+            'scalar_fields': [],
+            'primary_field': None,
+            'auto_id': False,
+            'num_entities': 0,
+            'is_empty': True,
+            'num_partitions': 0,
+            'partition_names': [],
+            'indexes': [],
+            'has_vector_index': False,
+            'index_types': [],
+            'metric_types': [],
+            'metadata_version': '1.0',
+            'last_updated': time.time(),
+            'is_fallback': True
+        }
+    
+    def clear_metadata_cache(self, collection_name: Optional[str] = None) -> None:
+        """Clear metadata cache for a specific collection or all collections."""
+        if not hasattr(self, '_metadata_cache'):
+            return
+        
+        if collection_name:
+            cache_key = f"{collection_name}_metadata"
+            self._metadata_cache.pop(cache_key, None)
+            self._cache_timestamps.pop(cache_key, None)
+            self.logger.info(f"Cleared metadata cache for collection: {collection_name}")
+        else:
+            self._metadata_cache.clear()
+            self._cache_timestamps.clear()
+            self.logger.info("Cleared all metadata cache")
+    
+    def get_collection_schema_summary(self, collection_name: str) -> Dict[str, Any]:
+        """Get a summary of collection schema for external use."""
+        try:
+            metadata = self._get_collection_metadata(collection_name)
+            
+            return {
+                'collection_name': collection_name,
+                'description': metadata.get('description', ''),
+                'vector_dimension': metadata.get('vector_dim', 768),
+                'total_entities': metadata.get('num_entities', 0),
+                'vector_fields': len(metadata.get('vector_fields', [])),
+                'scalar_fields': len(metadata.get('scalar_fields', [])),
+                'has_index': metadata.get('has_vector_index', False),
+                'index_types': metadata.get('index_types', []),
+                'partitions': metadata.get('partition_names', [])
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get schema summary for '{collection_name}': {e}")
+            return {
+                'collection_name': collection_name,
+                'error': str(e),
+                'vector_dimension': 768,
+                'total_entities': 0,
+                'vector_fields': 0,
+                'scalar_fields': 0,
+                'has_index': False,
+                'index_types': [],
+                'partitions': []
+            }
     
     def _create_milvus_query(self, request: VectorSearchRequest) -> SearchQuery:
         """Convert VectorSearchRequest to Milvus SearchQuery."""

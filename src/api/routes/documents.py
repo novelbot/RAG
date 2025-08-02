@@ -7,10 +7,20 @@ from fastapi.security import HTTPBearer
 from typing import Dict, List, Any, Optional
 import asyncio
 import time
+import logging
+import uuid
 from pathlib import Path
 
 from ...auth.dependencies import get_current_user
 from ...metrics.collectors import document_collector
+from ...core.database import SessionLocal
+from ...core.config import get_config
+from ...models.document import Document, DocumentStatus
+from ...file_system.parsers import TextParser, PDFParser, WordParser, MarkdownParser
+from ...text_processing.text_splitter import TextSplitter, ChunkingStrategy
+from ...text_processing.text_cleaner import TextCleaner
+from ...embedding.manager import EmbeddingManager
+from ...milvus.collection import CollectionManager
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 security = HTTPBearer()
@@ -214,36 +224,56 @@ async def list_documents(
     # Simulate async document retrieval
     await asyncio.sleep(0.3)
     
-    # TODO: Implement actual document listing
-    mock_documents = [
-        {
-            "id": f"doc_{i}",
-            "filename": f"document_{i}.pdf",
-            "status": "processed" if i % 3 != 0 else "processing",
-            "upload_date": f"2024-01-{i:02d}T10:00:00Z",
-            "size": 1024 * i,
-            "metadata": {"pages": i, "type": "pdf"}
+    # Implement actual document listing
+    try:
+        from src.services.document_service import DocumentService
+        
+        document_service = DocumentService()
+        result = document_service.list_documents(
+            page=page,
+            limit=limit,
+            status_filter=status_filter,
+            search_query=None,  # Can be added as query parameter later
+            sort_by="upload_date",
+            sort_order="desc"
+        )
+        
+        # Add user info to result
+        result["user_id"] = str(current_user.get("id", current_user.get("username", "unknown")))
+        return result
+        
+    except Exception as e:
+        # Fallback to mock data if service fails
+        mock_documents = [
+            {
+                "id": f"doc_{i}",
+                "filename": f"document_{i}.pdf",
+                "status": "processed" if i % 3 != 0 else "processing",
+                "upload_date": f"2024-01-{i:02d}T10:00:00Z",
+                "file_size": 1024 * i,
+                "metadata": {"pages": i, "type": "pdf"}
+            }
+            for i in range(1, 21)  # Reduced count for fallback
+        ]
+        
+        # Apply status filter
+        if status_filter:
+            mock_documents = [doc for doc in mock_documents if doc["status"] == status_filter]
+        
+        # Pagination
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        paginated_docs = mock_documents[start_idx:end_idx]
+        
+        return {
+            "documents": paginated_docs,
+            "total": len(mock_documents),
+            "page": page,
+            "limit": limit,
+            "total_pages": (len(mock_documents) + limit - 1) // limit,
+            "user_id": str(current_user.get("id", current_user.get("username", "unknown"))),
+            "error": f"Service unavailable, showing mock data: {str(e)}"
         }
-        for i in range(1, 51)
-    ]
-    
-    # Apply status filter
-    if status_filter:
-        mock_documents = [doc for doc in mock_documents if doc["status"] == status_filter]
-    
-    # Pagination
-    start_idx = (page - 1) * limit
-    end_idx = start_idx + limit
-    paginated_docs = mock_documents[start_idx:end_idx]
-    
-    return {
-        "documents": paginated_docs,
-        "total": len(mock_documents),
-        "page": page,
-        "limit": limit,
-        "total_pages": (len(mock_documents) + limit - 1) // limit,
-        "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
-    }
 
 
 @router.get("/{document_id}", response_model=Dict[str, Any])
@@ -267,28 +297,63 @@ async def get_document(
     # Simulate async document retrieval
     await asyncio.sleep(0.2)
     
-    # TODO: Implement actual document retrieval
-    if document_id.startswith("doc_"):
-        return {
-            "id": document_id,
-            "filename": "sample_document.pdf",
-            "status": "processed",
-            "upload_date": "2024-01-15T10:00:00Z",
-            "size": 2048,
-            "chunks": 25,
-            "metadata": {
-                "pages": 10,
-                "type": "pdf",
-                "language": "en",
-                "processing_time": 45.2
-            },
-            "user_id": str(current_user.get("id", current_user.get("username", "unknown")))
-        }
-    
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Document not found"
-    )
+    # Implement actual document retrieval
+    try:
+        from src.services.document_service import DocumentService
+        
+        document_service = DocumentService()
+        
+        # Convert document_id to int if it's numeric
+        try:
+            doc_id = int(document_id)
+        except ValueError:
+            # Handle legacy string IDs
+            if document_id.startswith("doc_"):
+                doc_id = int(document_id.replace("doc_", ""))
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid document ID format"
+                )
+        
+        document = document_service.get_document(doc_id)
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found"
+            )
+        
+        result = document.to_dict()
+        result["user_id"] = str(current_user.get("id", current_user.get("username", "unknown")))
+        return result
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Fallback to mock data for compatibility
+        if document_id.startswith("doc_"):
+            return {
+                "id": document_id,
+                "filename": "sample_document.pdf",
+                "status": "processed",
+                "upload_date": "2024-01-15T10:00:00Z",
+                "file_size": 2048,
+                "chunk_count": 25,
+                "metadata": {
+                    "pages": 10,
+                    "type": "pdf",
+                    "language": "en",
+                    "processing_time": 45.2
+                },
+                "user_id": str(current_user.get("id", current_user.get("username", "unknown"))),
+                "error": f"Service unavailable, showing mock data: {str(e)}"
+            }
+        
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
 
 
 @router.delete("/{document_id}", response_model=Dict[str, str])
@@ -312,24 +377,90 @@ async def delete_document(
     # Simulate async document deletion
     await asyncio.sleep(0.4)
     
-    # TODO: Implement actual document deletion
-    if not document_id.startswith("doc_"):
+    # Implement actual document deletion
+    try:
+        from src.services.document_service import DocumentService
+        from src.milvus.collection import CollectionManager
+        from src.core.config import get_config
+        
+        document_service = DocumentService()
+        
+        # Convert document_id to int if it's numeric  
+        try:
+            doc_id = int(document_id)
+        except ValueError:
+            # Handle legacy string IDs
+            if document_id.startswith("doc_"):
+                doc_id = int(document_id.replace("doc_", ""))
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid document ID format"
+                )
+        
+        # Get document to verify it exists and check permissions
+        document = document_service.get_document(doc_id)
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found"
+            )
+        
+        # Check if user has permission to delete (basic owner check)
+        user_id = getattr(current_user, 'id', None)
+        if user_id and document.owner_id and document.owner_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to delete this document"
+            )
+        
+        # Delete vectors from Milvus if document has been vectorized
+        if document.vector_count and document.vector_count > 0:
+            try:
+                config = get_config()
+                collection_manager = CollectionManager(
+                    collection_name=config.milvus.collection_name,
+                    milvus_client=None  # Will create its own client
+                )
+                
+                # Delete vectors using document_id filter
+                delete_expr = f'document_id == "{document_id}"'
+                delete_result = collection_manager.delete(delete_expr)
+                
+                logging.info(f"Deleted {delete_result.delete_count} vectors for document {document_id}")
+                
+            except Exception as milvus_error:
+                logging.warning(f"Failed to delete vectors from Milvus for document {document_id}: {milvus_error}")
+                # Continue with database deletion even if Milvus fails
+        
+        # Delete document from database (also removes file if specified)
+        success = document_service.delete_document(doc_id, remove_file=True)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete document from database"
+            )
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logging.error(f"Error deleting document {document_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during document deletion"
         )
     
     # Log document deletion event
     try:
-        user_id = str(getattr(current_user, 'id', getattr(current_user, 'username', 'unknown')))
-        # For this mock implementation, we'll use a generic filename
-        # In a real implementation, you'd fetch the actual filename from database
-        filename = f"document_{document_id.split('_')[-1]}.pdf"
+        user_id_str = str(getattr(current_user, 'id', getattr(current_user, 'username', 'unknown')))
+        # Use the actual filename from the document that was retrieved
+        filename = document.filename if 'document' in locals() else f"document_{document_id.split('_')[-1] if '_' in document_id else document_id}.pdf"
         
         await document_collector.log_document_delete(
             document_id=document_id,
             filename=filename,
-            user_id=user_id
+            user_id=user_id_str
         )
     except Exception as e:
         # Don't fail deletion if logging fails
@@ -364,16 +495,67 @@ async def reprocess_document(
     # Simulate async reprocessing initiation
     await asyncio.sleep(0.1)
     
-    # TODO: Implement actual document reprocessing
-    if not document_id.startswith("doc_"):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
+    # Implement actual document reprocessing
+    try:
+        from src.services.document_service import DocumentService
+        
+        document_service = DocumentService()
+        
+        # Convert document_id to int if it's numeric
+        try:
+            doc_id = int(document_id)
+        except ValueError:
+            # Handle legacy string IDs
+            if document_id.startswith("doc_"):
+                doc_id = int(document_id.replace("doc_", ""))
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid document ID format"
+                )
+        
+        # Verify document exists and get its info
+        document = document_service.get_document(doc_id)
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found"
+            )
+        
+        # Check if user has permission to reprocess (basic owner check)
+        user_id = getattr(current_user, 'id', None)
+        if user_id and document.owner_id and document.owner_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to reprocess this document"
+            )
+        
+        # Check if document is in a state that allows reprocessing
+        if document.status in [DocumentStatus.PROCESSING, DocumentStatus.UPLOADING]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot reprocess document in {document.status.value} state"
+            )
+        
+        # Add background task for reprocessing with enhanced parameters
+        user_id_str = str(getattr(current_user, 'id', getattr(current_user, 'username', 'unknown')))
+        background_tasks.add_task(
+            reprocess_document_background, 
+            document_id, 
+            document.filename, 
+            user_id_str,
+            force_reembedding=True  # Always regenerate embeddings during reprocessing
         )
-    
-    # Add background task for reprocessing
-    user_id = str(current_user.get("id", current_user.get("username", "unknown")))
-    background_tasks.add_task(process_document, document_id, "reprocess", user_id)
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logging.error(f"Error initiating document reprocessing for {document_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate document reprocessing"
+        )
     
     return {
         "document_id": document_id,
@@ -392,7 +574,377 @@ async def process_document(document_id: str, filename: str, user_id: str) -> Non
         filename: Original filename
         user_id: User who uploaded the document
     """
-    # Simulate async document processing
-    await asyncio.sleep(2.0)
-    print(f"Processed document: {filename} (ID: {document_id}) for user: {user_id}")
-    # TODO: Implement actual document processing pipeline
+    logger = logging.getLogger(__name__)
+    db = None
+    
+    try:
+        # Get database session
+        db = SessionLocal()
+        
+        # Get document record
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            logger.error(f"Document {document_id} not found in database")
+            return
+            
+        # Update status to processing
+        document.status = DocumentStatus.PROCESSING
+        db.commit()
+        
+        logger.info(f"Starting processing for document {document_id}: {filename}")
+        
+        # Step 1: Validate file exists and is accessible
+        file_path = Path(document.file_path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Document file not found: {document.file_path}")
+            
+        # Step 2: Extract text content based on file type
+        file_extension = file_path.suffix.lower()
+        extracted_text = ""
+        doc_metadata = {}
+        
+        if file_extension == '.txt':
+            parser = TextParser()
+        elif file_extension == '.pdf':
+            parser = PDFParser()
+        elif file_extension == '.docx':
+            parser = WordParser()
+        elif file_extension == '.md':
+            parser = MarkdownParser()
+        else:
+            raise ValueError(f"Unsupported file type: {file_extension}")
+            
+        # Parse document
+        parse_result = parser.parse(file_path)
+        extracted_text = parse_result.get('content', '')
+        doc_metadata = parse_result.get('metadata', {})
+        
+        if not extracted_text or len(extracted_text.strip()) == 0:
+            raise ValueError("No text content extracted from document")
+            
+        logger.info(f"Extracted {len(extracted_text)} characters from {filename}")
+        
+        # Step 3: Clean and chunk the text
+        text_cleaner = TextCleaner()
+        cleaned_text = text_cleaner.clean(extracted_text)
+        
+        # Configure text splitter
+        config = get_config()
+        text_splitter = TextSplitter(
+            strategy=ChunkingStrategy.RECURSIVE_CHARACTER,
+            chunk_size=config.text_processing.chunk_size,
+            chunk_overlap=config.text_processing.chunk_overlap
+        )
+        
+        # Split text into chunks
+        chunks = text_splitter.split_text(cleaned_text)
+        logger.info(f"Split document into {len(chunks)} chunks")
+        
+        # Step 4: Generate embeddings
+        embedding_manager = EmbeddingManager()
+        chunk_embeddings = []
+        
+        for i, chunk in enumerate(chunks):
+            try:
+                embedding = await embedding_manager.generate_embedding(chunk.page_content)
+                chunk_embeddings.append({
+                    'chunk_id': f"{document_id}_chunk_{i}",
+                    'content': chunk.page_content,
+                    'embedding': embedding,
+                    'metadata': {
+                        'document_id': document_id,
+                        'chunk_index': i,
+                        'filename': filename,
+                        'user_id': user_id,
+                        'file_extension': file_extension,
+                        **chunk.metadata,
+                        **doc_metadata
+                    }
+                })
+            except Exception as e:
+                logger.error(f"Failed to generate embedding for chunk {i}: {e}")
+                raise
+                
+        logger.info(f"Generated embeddings for {len(chunk_embeddings)} chunks")
+        
+        # Step 5: Store vectors in Milvus
+        milvus_config = config.milvus
+        collection_manager = CollectionManager(
+            host=milvus_config.host,
+            port=milvus_config.port,
+            collection_name=milvus_config.collection_name
+        )
+        
+        # Prepare data for Milvus insertion
+        vector_data = []
+        for chunk_data in chunk_embeddings:
+            vector_data.append({
+                'id': chunk_data['chunk_id'],
+                'vector': chunk_data['embedding'],
+                'content': chunk_data['content'],
+                'metadata': chunk_data['metadata']
+            })
+            
+        # Insert vectors into Milvus
+        insertion_result = await collection_manager.insert_vectors(vector_data)
+        vector_count = len(vector_data)
+        
+        logger.info(f"Stored {vector_count} vectors in Milvus for document {document_id}")
+        
+        # Step 6: Update document status and metadata
+        document.mark_processed(
+            chunk_count=len(chunks),
+            vector_count=vector_count,
+            metadata={
+                'extraction_metadata': doc_metadata,
+                'processing_stats': {
+                    'original_text_length': len(extracted_text),
+                    'cleaned_text_length': len(cleaned_text),
+                    'chunk_count': len(chunks),
+                    'vector_count': vector_count,
+                    'file_extension': file_extension
+                }
+            }
+        )
+        
+        db.commit()
+        logger.info(f"Successfully processed document {document_id}: {filename}")
+        
+    except Exception as e:
+        logger.error(f"Error processing document {document_id}: {str(e)}")
+        
+        # Mark document as failed
+        if db and document:
+            try:
+                document.mark_failed(str(e))
+                db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update document status: {db_error}")
+                
+        raise
+        
+    finally:
+        if db:
+            db.close()
+
+
+async def reprocess_document_background(
+    document_id: str, 
+    filename: str, 
+    user_id: str, 
+    force_reembedding: bool = True
+) -> None:
+    """
+    Background task for document reprocessing with improved algorithms and settings.
+    
+    Args:
+        document_id: Document identifier
+        filename: Original filename
+        user_id: User who initiated reprocessing
+        force_reembedding: Whether to regenerate embeddings even if they exist
+    """
+    logger = logging.getLogger(__name__)
+    db = None
+    
+    try:
+        # Get database session
+        db = SessionLocal()
+        
+        # Get document record
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            logger.error(f"Document {document_id} not found in database for reprocessing")
+            return
+        
+        # Update status to processing
+        document.status = DocumentStatus.PROCESSING
+        db.commit()
+        
+        logger.info(f"Starting reprocessing for document {document_id}: {filename}")
+        
+        # Step 1: Validate file exists and is accessible
+        file_path = Path(document.file_path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Document file not found: {document.file_path}")
+            
+        # Step 2: Remove existing vectors from Milvus if they exist
+        if force_reembedding and document.vector_count and document.vector_count > 0:
+            try:
+                config = get_config()
+                collection_manager = CollectionManager(
+                    collection_name=config.milvus.collection_name,
+                    milvus_client=None  # Will create its own client
+                )
+                
+                # Delete existing vectors using document_id filter
+                delete_expr = f'document_id == "{document_id}"'
+                delete_result = collection_manager.delete(delete_expr)
+                
+                logger.info(f"Removed {delete_result.delete_count} existing vectors for document {document_id}")
+                
+            except Exception as milvus_error:
+                logger.warning(f"Failed to remove existing vectors from Milvus for document {document_id}: {milvus_error}")
+                # Continue with reprocessing even if vector deletion fails
+        
+        # Step 3: Extract text content with updated parsers
+        file_extension = file_path.suffix.lower()
+        extracted_text = ""
+        doc_metadata = {}
+        
+        if file_extension == '.txt':
+            parser = TextParser()
+        elif file_extension == '.pdf':
+            parser = PDFParser()
+        elif file_extension == '.docx':
+            parser = WordParser()
+        elif file_extension == '.md':
+            parser = MarkdownParser()
+        else:
+            raise ValueError(f"Unsupported file type: {file_extension}")
+            
+        # Parse document with potentially improved extraction
+        parse_result = parser.parse(file_path)
+        extracted_text = parse_result.get('content', '')
+        doc_metadata = parse_result.get('metadata', {})
+        
+        # Add reprocessing metadata
+        doc_metadata['reprocessed'] = True
+        doc_metadata['reprocessing_timestamp'] = time.time()
+        doc_metadata['original_vector_count'] = document.vector_count or 0
+        
+        if not extracted_text or len(extracted_text.strip()) == 0:
+            raise ValueError("No text content extracted from document during reprocessing")
+            
+        logger.info(f"Re-extracted {len(extracted_text)} characters from {filename}")
+        
+        # Step 4: Clean text with potentially improved cleaning algorithms
+        text_cleaner = TextCleaner()
+        cleaned_text = text_cleaner.clean(extracted_text)
+        
+        # Step 5: Re-chunk text with updated settings
+        config = get_config()
+        text_splitter = TextSplitter(
+            strategy=ChunkingStrategy.RECURSIVE_CHARACTER,
+            chunk_size=config.text_processing.chunk_size,
+            chunk_overlap=config.text_processing.chunk_overlap
+        )
+        
+        # Split text into chunks
+        chunks = text_splitter.split_text(cleaned_text)
+        logger.info(f"Re-split document into {len(chunks)} chunks (was {document.chunk_count or 0})")
+        
+        # Step 6: Generate new embeddings
+        embedding_manager = EmbeddingManager()
+        chunk_embeddings = []
+        
+        for i, chunk in enumerate(chunks):
+            try:
+                embedding = await embedding_manager.generate_embedding(chunk.page_content)
+                chunk_embeddings.append({
+                    'chunk_id': f"{document_id}_chunk_{i}_reprocessed",
+                    'content': chunk.page_content,
+                    'embedding': embedding,
+                    'metadata': {
+                        'document_id': document_id,
+                        'chunk_index': i,
+                        'filename': filename,
+                        'user_id': user_id,
+                        'file_extension': file_extension,
+                        'reprocessed': True,
+                        'reprocessing_timestamp': time.time(),
+                        **chunk.metadata,
+                        **doc_metadata
+                    }
+                })
+            except Exception as e:
+                logger.error(f"Failed to generate embedding for chunk {i} during reprocessing: {e}")
+                raise
+                
+        logger.info(f"Generated new embeddings for {len(chunk_embeddings)} chunks")
+        
+        # Step 7: Store new vectors in Milvus
+        milvus_config = config.milvus
+        collection_manager = CollectionManager(
+            host=milvus_config.host,
+            port=milvus_config.port,
+            collection_name=milvus_config.collection_name
+        )
+        
+        # Prepare data for Milvus insertion
+        vector_data = []
+        for chunk_data in chunk_embeddings:
+            vector_data.append({
+                'id': chunk_data['chunk_id'],
+                'vector': chunk_data['embedding'],
+                'content': chunk_data['content'],
+                'metadata': chunk_data['metadata']
+            })
+            
+        # Insert new vectors into Milvus
+        insertion_result = await collection_manager.insert_vectors(vector_data)
+        vector_count = len(vector_data)
+        
+        logger.info(f"Stored {vector_count} new vectors in Milvus for reprocessed document {document_id}")
+        
+        # Step 8: Update document status and metadata with reprocessing info
+        reprocessing_metadata = {
+            'reprocessed': True,
+            'reprocessing_timestamp': time.time(),
+            'original_stats': {
+                'chunk_count': document.chunk_count or 0,
+                'vector_count': document.vector_count or 0
+            },
+            'new_stats': {
+                'original_text_length': len(extracted_text),
+                'cleaned_text_length': len(cleaned_text),
+                'chunk_count': len(chunks),
+                'vector_count': vector_count,
+                'file_extension': file_extension
+            },
+            'extraction_metadata': doc_metadata
+        }
+        
+        # Merge with existing metadata if any
+        existing_metadata = document.metadata or {}
+        existing_metadata.update(reprocessing_metadata)
+        
+        document.mark_processed(
+            chunk_count=len(chunks),
+            vector_count=vector_count,
+            metadata=existing_metadata
+        )
+        
+        db.commit()
+        logger.info(f"Successfully reprocessed document {document_id}: {filename}")
+        
+        # Log reprocessing metrics
+        try:
+            await document_collector.log_document_reprocess(
+                document_id=document_id,
+                filename=filename,
+                user_id=user_id,
+                old_chunk_count=reprocessing_metadata['original_stats']['chunk_count'],
+                new_chunk_count=len(chunks),
+                old_vector_count=reprocessing_metadata['original_stats']['vector_count'],
+                new_vector_count=vector_count,
+                processing_time_ms=int((time.time() - reprocessing_metadata['reprocessing_timestamp']) * 1000)
+            )
+        except Exception as metrics_error:
+            logger.warning(f"Failed to log reprocessing metrics: {metrics_error}")
+        
+    except Exception as e:
+        logger.error(f"Error reprocessing document {document_id}: {str(e)}")
+        
+        # Mark document as failed
+        if db and document:
+            try:
+                document.mark_failed(f"Reprocessing failed: {str(e)}")
+                db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update document status after reprocessing failure: {db_error}")
+                
+        raise
+        
+    finally:
+        if db:
+            db.close()

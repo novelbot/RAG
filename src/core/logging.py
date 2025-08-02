@@ -5,12 +5,13 @@ Logging configuration and setup for the RAG server.
 import sys
 from pathlib import Path
 from loguru import logger
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from .config import LoggingConfig
+if TYPE_CHECKING:
+    from .config import LoggingConfig
 
 
-def setup_logging(config: LoggingConfig):
+def setup_logging(config: "LoggingConfig"):
     """Setup application logging with loguru"""
     
     # Remove default handler

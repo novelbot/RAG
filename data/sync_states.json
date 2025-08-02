@@ -1,0 +1,28 @@
+{
+  "performance_test": {
+    "source_id": "performance_test",
+    "source_type": "database",
+    "last_sync": "2025-08-01T12:58:59.580098",
+    "last_hash": null,
+    "sync_status": "completed",
+    "error_message": null,
+    "records_processed": 10,
+    "records_added": 10,
+    "records_updated": 0,
+    "records_deleted": 0,
+    "sync_duration": 0.803889
+  },
+  "cli_simulation": {
+    "source_id": "cli_simulation",
+    "source_type": "database",
+    "last_sync": "2025-08-01T12:59:13.795133",
+    "last_hash": null,
+    "sync_status": "completed",
+    "error_message": null,
+    "records_processed": 2,
+    "records_added": 2,
+    "records_updated": 0,
+    "records_deleted": 0,
+    "sync_duration": 0.849377
+  }
+}

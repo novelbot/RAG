@@ -5,13 +5,12 @@ Supports loading from YAML/JSON files and environment variables.
 
 import os
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from dataclasses import field
 from dotenv import load_dotenv
 from pydantic import BaseModel, field_validator
 
 from src.embedding.types import EmbeddingProvider, EmbeddingConfig
-from src.rag.access_control_filter import AccessControlConfig
 
 # Load environment variables from .env file
 load_dotenv()
@@ -164,7 +163,7 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     data_source: DataSourceConfig = DataSourceConfig()
     rag: RAGConfig = RAGConfig()
-    access_control: AccessControlConfig = AccessControlConfig()
+    access_control: Optional[Any] = None
     
     # RDB connections for multiple databases
     rdb_connections: Dict[str, DatabaseConfig] = {}
@@ -186,6 +185,7 @@ class ConfigManager:
             self._override_from_env()
             self._setup_embedding_providers()
             self._setup_rdb_connections()
+            self._setup_access_control()
         return self._config
     
     def _override_from_env(self) -> None:
@@ -318,6 +318,18 @@ class ConfigManager:
                     driver=os.getenv('DB_DRIVER', 'mysql+pymysql')
                 )
             }
+    
+    def _setup_access_control(self) -> None:
+        """Setup access control configuration with lazy import"""
+        if not self._config:
+            return
+        
+        try:
+            from src.rag.access_control_filter import AccessControlConfig
+            self._config.access_control = AccessControlConfig()
+        except ImportError:
+            # If access control is not available, keep it as None
+            self._config.access_control = None
     
     def get_config(self) -> AppConfig:
         """Get current configuration"""

@@ -45,18 +45,165 @@ async def initialize_components(config):
     except Exception as e:
         logger.error(f"❌ Failed to initialize metrics database: {e}")
     
-    # TODO: Initialize database connections
-    # TODO: Initialize Milvus connection
-    # TODO: Initialize LLM clients
-    # TODO: Initialize embedding models
+    # Initialize database connections
+    try:
+        from ..database.base import DatabaseFactory
+        from ..core.database import init_database
+        
+        # Initialize primary database connection
+        init_database()
+        logger.info("✅ Primary database connection initialized")
+        
+        # Initialize RDB connections if configured
+        if hasattr(config, 'rdb_connections') and config.rdb_connections:
+            for conn_name, db_config in config.rdb_connections.items():
+                try:
+                    manager = DatabaseFactory.create_manager(db_config)
+                    # Test connection
+                    if manager.test_connection():
+                        logger.info(f"✅ RDB connection '{conn_name}' initialized and tested")
+                    else:
+                        logger.warning(f"⚠️ RDB connection '{conn_name}' initialized but test failed")
+                except Exception as e:
+                    logger.error(f"❌ Failed to initialize RDB connection '{conn_name}': {e}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize database connections: {e}")
+    
+    # Initialize Milvus connection
+    try:
+        from ..milvus.client import MilvusClient
+        
+        milvus_client = MilvusClient(config.milvus)
+        if milvus_client.connect():
+            logger.info("✅ Milvus connection initialized")
+            
+            # Store client globally for access by other components
+            import sys
+            sys.modules[__name__].milvus_client = milvus_client
+        else:
+            logger.error("❌ Failed to connect to Milvus")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Milvus connection: {e}")
+    
+    # Initialize LLM clients
+    try:
+        from ..llm.manager import LLMManager, ProviderConfig, LoadBalancingStrategy
+        from ..llm.base import LLMProvider
+        
+        # Create provider configurations from config
+        provider_configs = []
+        
+        # Add primary LLM provider
+        if config.llm.provider and config.llm.api_key:
+            try:
+                provider_enum = LLMProvider(config.llm.provider.upper())
+                provider_config = ProviderConfig(
+                    provider=provider_enum,
+                    config=config.llm,
+                    priority=1,
+                    enabled=True
+                )
+                provider_configs.append(provider_config)
+            except ValueError:
+                logger.warning(f"Unknown LLM provider: {config.llm.provider}")
+        
+        if provider_configs:
+            llm_manager = LLMManager(provider_configs)
+            llm_manager.set_load_balancing_strategy(LoadBalancingStrategy.HEALTH_BASED)
+            
+            # Store manager globally for access by other components
+            import sys
+            sys.modules[__name__].llm_manager = llm_manager
+            logger.info("✅ LLM manager initialized")
+        else:
+            logger.warning("⚠️ No LLM providers configured")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize LLM clients: {e}")
+    
+    # Initialize embedding models
+    try:
+        from ..embedding.manager import EmbeddingManager, EmbeddingProviderConfig
+        from ..embedding.types import EmbeddingProvider
+        
+        # Create provider configurations from config
+        provider_configs = []
+        
+        # Add primary embedding provider
+        if hasattr(config, 'embedding') and config.embedding:
+            provider_config = EmbeddingProviderConfig(
+                provider=config.embedding.provider,
+                config=config.embedding,
+                priority=1,
+                enabled=True
+            )
+            provider_configs.append(provider_config)
+        
+        # Add additional embedding providers if configured
+        if hasattr(config, 'embedding_providers') and config.embedding_providers:
+            for provider_name, embedding_config in config.embedding_providers.items():
+                if provider_name != "default":  # Skip default as it's already added
+                    provider_config = EmbeddingProviderConfig(
+                        provider=embedding_config.provider,
+                        config=embedding_config,
+                        priority=2,
+                        enabled=True
+                    )
+                    provider_configs.append(provider_config)
+        
+        if provider_configs:
+            embedding_manager = EmbeddingManager(provider_configs, enable_cache=True)
+            
+            # Store manager globally for access by other components
+            import sys
+            sys.modules[__name__].embedding_manager = embedding_manager
+            logger.info("✅ Embedding manager initialized")
+        else:
+            logger.warning("⚠️ No embedding providers configured")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize embedding models: {e}")
 
 
 async def cleanup_components():
     """Clean up application components"""
-    # TODO: Close database connections
-    # TODO: Close Milvus connection
-    # TODO: Cleanup LLM clients
-    pass
+    # Close database connections
+    try:
+        from ..core.database import engine
+        if engine:
+            engine.dispose()
+            logger.info("✅ Primary database connections closed")
+    except Exception as e:
+        logger.error(f"❌ Failed to close database connections: {e}")
+    
+    # Close Milvus connection
+    try:
+        import sys
+        milvus_client = getattr(sys.modules.get(__name__), 'milvus_client', None)
+        if milvus_client:
+            milvus_client.disconnect()
+            logger.info("✅ Milvus connection closed")
+    except Exception as e:
+        logger.error(f"❌ Failed to close Milvus connection: {e}")
+    
+    # Cleanup LLM clients
+    try:
+        import sys
+        llm_manager = getattr(sys.modules.get(__name__), 'llm_manager', None)
+        if llm_manager:
+            # LLM Manager doesn't need explicit cleanup
+            logger.info("✅ LLM clients cleaned up")
+    except Exception as e:
+        logger.error(f"❌ Failed to cleanup LLM clients: {e}")
+    
+    # Cleanup embedding models
+    try:
+        import sys
+        embedding_manager = getattr(sys.modules.get(__name__), 'embedding_manager', None)
+        if embedding_manager:
+            # Clear embedding cache
+            embedding_manager.clear_cache()
+            logger.info("✅ Embedding models cleaned up")
+    except Exception as e:
+        logger.error(f"❌ Failed to cleanup embedding models: {e}")
 
 
 def create_app() -> FastAPI:
