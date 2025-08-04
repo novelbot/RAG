@@ -1417,10 +1417,10 @@ async def process_all_novels(
                 # Process only specified novels
                 novel_ids = request.filter_novel_ids
             else:
-                # Get all novel IDs from database
-                query = "SELECT DISTINCT novel_id FROM episode ORDER BY novel_id"
+                # Get all novel IDs from database (CLI-style)
+                from sqlalchemy import text
                 with connection.cursor() as cursor:
-                    cursor.execute(query)
+                    cursor.execute("SELECT novel_id FROM novels")
                     results = cursor.fetchall()
                     novel_ids = [row['novel_id'] for row in results]
             
@@ -1632,7 +1632,8 @@ async def process_all_novels_background(
         from ...episode import EpisodeRAGConfig, create_episode_rag_manager
         episode_config = EpisodeRAGConfig(
             collection_name="episode_embeddings",
-            processing_batch_size=10
+            processing_batch_size=5,  # Match CLI settings for stability
+            vector_dimension=1024  # Match Ollama model dimension
         )
         
         episode_rag_manager = await create_episode_rag_manager(
@@ -1640,8 +1641,11 @@ async def process_all_novels_background(
             embedding_manager=embedding_manager,
             milvus_client=milvus_client,
             config=episode_config,
-            setup_collection=True
+            setup_collection=False  # CLI-style: setup separately
         )
+        
+        # Setup collection first (CLI-style)
+        await episode_rag_manager.setup_collection(drop_existing=True)
         
         # Process novels in batches
         total_processed = 0
@@ -1711,7 +1715,7 @@ async def process_single_novel_with_retry(
         try:
             print(f"🔄 Processing Novel {novel_id} (attempt {attempt + 1})")
             
-            result = await episode_rag_manager.process_novel_episodes(novel_id)
+            result = await episode_rag_manager.process_novel(novel_id, force_reprocess=force_reprocess)
             
             print(f"✅ Novel {novel_id} completed: {result.get('processed_count', 0)} episodes")
             return result
