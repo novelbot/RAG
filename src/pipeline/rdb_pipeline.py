@@ -181,7 +181,7 @@ class RDBVectorPipeline(LoggerMixin):
         try:
             self.milvus_client.create_collection_if_not_exists(
                 collection_name=self.config.collection_name,
-                dim=1024,  # Default embedding dimension
+                dim=get_config().rag.vector_dimension,  # Use configured embedding dimension
                 description=f"Auto-generated collection for RDB data from {self.config.database_name}"
             )
             self.logger.info(f"Collection {self.config.collection_name} is ready")

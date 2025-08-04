@@ -134,6 +134,7 @@ class RAGConfig(BaseModel):
     similarity_threshold: float = 0.7
     rerank_enabled: bool = True
     ensemble_models: list = field(default_factory=list)
+    vector_dimension: int = 1024  # Default dimension for embeddings
     
     @field_validator('mode')
     @classmethod
@@ -240,6 +241,14 @@ class ConfigManager:
             self._config.embedding.model = os.getenv('EMBEDDING_MODEL', self._config.embedding.model)
         if os.getenv('EMBEDDING_API_KEY'):
             self._config.embedding.api_key = os.getenv('EMBEDDING_API_KEY', self._config.embedding.api_key)
+        
+        # RAG overrides
+        if os.getenv('VECTOR_DIMENSION'):
+            self._config.rag.vector_dimension = int(os.getenv('VECTOR_DIMENSION', str(self._config.rag.vector_dimension)))
+        if os.getenv('RAG_RETRIEVAL_K'):
+            self._config.rag.retrieval_k = int(os.getenv('RAG_RETRIEVAL_K', str(self._config.rag.retrieval_k)))
+        if os.getenv('RAG_SIMILARITY_THRESHOLD'):
+            self._config.rag.similarity_threshold = float(os.getenv('RAG_SIMILARITY_THRESHOLD', str(self._config.rag.similarity_threshold)))
         
         # Auth overrides
         if os.getenv('SECRET_KEY'):

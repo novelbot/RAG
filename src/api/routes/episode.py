@@ -1657,7 +1657,7 @@ async def process_all_novels_background(
         episode_config = EpisodeRAGConfig(
             collection_name="episode_embeddings",
             processing_batch_size=5,  # Match CLI settings for stability
-            vector_dimension=1024  # Match Ollama model dimension
+            vector_dimension=get_config().rag.vector_dimension  # Use configured dimension
         )
         
         episode_rag_manager = await create_episode_rag_manager(

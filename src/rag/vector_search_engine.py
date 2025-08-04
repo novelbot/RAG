@@ -198,6 +198,16 @@ class VectorSearchEngine(LoggerMixin):
         
         self.logger.info("VectorSearchEngine initialized successfully")
     
+    def _get_default_vector_dimension(self) -> int:
+        """Get the default vector dimension from configuration."""
+        try:
+            from ..core.config import get_config
+            config = get_config()
+            return config.rag.vector_dimension
+        except Exception:
+            # Fallback if config is not available
+            return 1024
+    
     def search(
         self,
         collection_name: str,
@@ -474,7 +484,7 @@ class VectorSearchEngine(LoggerMixin):
             from src.milvus.schema import RAGCollectionSchema
             schema = RAGCollectionSchema(
                 collection_name=collection_name,
-                vector_dim=metadata.get('vector_dim', 1024),
+                vector_dim=metadata.get('vector_dim', self._get_default_vector_dimension()),
                 description=metadata.get('description', f"Collection {collection_name}")
             )
             
@@ -600,7 +610,10 @@ class VectorSearchEngine(LoggerMixin):
                     if schema_info['vector_dim'] is None or (
                         field_info.get('dimension', 0) > schema_info['vector_dim']
                     ):
-                        schema_info['vector_dim'] = field_info.get('dimension', 1024)
+                        from ..core.config import get_config
+                        config = get_config()
+                        default_dim = config.rag.vector_dimension
+                        schema_info['vector_dim'] = field_info.get('dimension', default_dim)
                 else:
                     schema_info['scalar_fields'].append(field_info)
                 
@@ -612,8 +625,11 @@ class VectorSearchEngine(LoggerMixin):
             
             # Fallback vector dimension if not found
             if schema_info['vector_dim'] is None:
-                schema_info['vector_dim'] = 1024
-                self.logger.warning(f"Could not determine vector dimension for collection {collection.name}, using default 1024")
+                from ..core.config import get_config
+                config = get_config()
+                default_dim = config.rag.vector_dimension
+                schema_info['vector_dim'] = default_dim
+                self.logger.warning(f"Could not determine vector dimension for collection {collection.name}, using configured default {default_dim}")
             
             return schema_info
             

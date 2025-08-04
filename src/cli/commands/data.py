@@ -87,7 +87,7 @@ def ingest_data(path, database, episode_mode, recursive, file_types, batch_size,
                 milvus_client = MilvusClient(config.milvus)
                 episode_config = EpisodeRAGConfig(
                     processing_batch_size=5,  # Further reduce batch size for stability  
-                    vector_dimension=1024  # Match Ollama model dimension
+                    vector_dimension=get_config().rag.vector_dimension  # Use configured dimension
                 )
                 
                 episode_manager = EpisodeRAGManager(
@@ -351,7 +351,7 @@ def ingest_data(path, database, episode_mode, recursive, file_types, batch_size,
             try:
                 milvus_client.create_collection_if_not_exists(
                     collection_name="documents",
-                    dim=1024,  # Default embedding dimension
+                    dim=get_config().rag.vector_dimension,  # Use configured embedding dimension
                     description="Auto-generated collection for file-based documents"
                 )
                 console.print(f"[green]✓ Collection 'documents' is ready[/green]")
