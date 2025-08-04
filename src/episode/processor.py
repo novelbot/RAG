@@ -394,18 +394,32 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             raise
     
     def _generate_chunked_embedding(self, episode: EpisodeData, content: str) -> None:
-        """Generate embedding for long episode content by chunking."""
+        """Generate individual embeddings for episode chunks and store as separate chunks."""
         try:
+            from .models import EpisodeChunk
+            
             # 청크 크기 설정 (보수적으로 1500자 = 약 2250토큰)
             chunk_size = 1500
             overlap = 200  # 청크 간 중복
             
-            chunks = self._split_content_into_chunks(content, chunk_size, overlap)
-            self.logger.debug(f"📚 Episode {episode.episode_id}: {len(chunks)}개 청크로 분할")
+            chunks_text = self._split_content_into_chunks(content, chunk_size, overlap)
+            self.logger.debug(f"📚 Episode {episode.episode_id}: {len(chunks_text)}개 청크로 분할")
             
-            # 각 청크에 대해 임베딩 생성 (더 안전한 처리)
-            chunk_embeddings = []
-            for i, chunk in enumerate(chunks):
+            # 각 청크를 개별 EpisodeChunk 객체로 생성
+            episode_chunks = []
+            for i, chunk_text in enumerate(chunks_text):
+                chunk = EpisodeChunk(
+                    episode_id=episode.episode_id,
+                    chunk_index=i,
+                    content=chunk_text,
+                    episode_number=episode.episode_number,
+                    episode_title=episode.episode_title,
+                    publication_date=episode.publication_date,
+                    novel_id=episode.novel_id,
+                    total_chunks=len(chunks_text)
+                )
+                
+                # 각 청크에 대해 개별 임베딩 생성
                 chunk_retries = 3
                 chunk_success = False
                 
@@ -416,14 +430,14 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
                             time.sleep(3)
                         
                         request = EmbeddingRequest(
-                            input=[chunk],
+                            input=[chunk_text],
                             encoding_format="float"
                         )
                         
                         response = self.embedding_manager.generate_embeddings(request)
-                        chunk_embeddings.append(response.embeddings[0])
+                        chunk.embedding = response.embeddings[0]
                         chunk_success = True
-                        self.logger.debug(f"✅ Episode {episode.episode_id} 청크 {i+1}/{len(chunks)} 성공")
+                        self.logger.debug(f"✅ Episode {episode.episode_id} 청크 {i+1}/{len(chunks_text)} 임베딩 완료")
                         break
                         
                     except Exception as e:
@@ -438,14 +452,14 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
                 
                 if not chunk_success:
                     raise EmbeddingError(f"Episode {episode.episode_id} 청크 {i+1} 처리 실패")
+                
+                episode_chunks.append(chunk)
             
-            # 청크 임베딩들을 평균내어 최종 임베딩 생성
-            if chunk_embeddings:
-                import numpy as np
-                episode.embedding = np.mean(chunk_embeddings, axis=0).tolist()
-                self.logger.debug(f"✅ Episode {episode.episode_id}: {len(chunks)}개 청크 평균 임베딩 완료")
-            else:
-                raise EmbeddingError(f"No valid chunk embeddings for episode {episode.episode_id}")
+            # 청크들을 episode에 저장 (개별 저장용)
+            episode.chunks = episode_chunks
+            episode.embedding = None  # 원본 에피소드는 임베딩 없음 (청크만 임베딩 있음)
+            
+            self.logger.debug(f"✅ Episode {episode.episode_id}: {len(episode_chunks)}개 청크 개별 임베딩 완료")
                 
         except Exception as e:
             self.logger.error(f"❌ Episode {episode.episode_id} 청킹 임베딩 실패: {e}")

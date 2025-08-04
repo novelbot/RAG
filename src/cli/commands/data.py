@@ -136,7 +136,7 @@ def ingest_data(path, database, episode_mode, recursive, file_types, batch_size,
                             
                             result = await episode_manager.process_novel(novel_id, force_reprocess=True)
                             
-                            episode_count = result.get('processed_count', 0)
+                            episode_count = result.get('episodes_processed', 0)
                             total_processed += episode_count
                             
                             console.print(f"[green]✓ Novel {novel_id}: {episode_count} episodes processed[/green]")

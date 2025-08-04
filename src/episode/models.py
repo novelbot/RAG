@@ -16,6 +16,52 @@ class EpisodeSortOrder(Enum):
     
 
 @dataclass
+class EpisodeChunk:
+    """
+    Episode chunk data for long episodes that need to be split.
+    """
+    episode_id: int
+    chunk_index: int  # 0-based chunk index
+    content: str
+    episode_number: int
+    episode_title: str
+    publication_date: Optional[date]
+    novel_id: int
+    
+    # Original episode data
+    total_chunks: int = 1
+    
+    # Computed fields
+    embedding: Optional[List[float]] = None
+    content_length: int = field(init=False)
+    
+    def __post_init__(self):
+        """Initialize computed fields."""
+        self.content_length = len(self.content) if self.content else 0
+    
+    @property
+    def chunk_id(self) -> str:
+        """Generate unique chunk ID."""
+        return f"{self.episode_id}_{self.chunk_index}"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for storage/serialization."""
+        return {
+            "episode_id": self.episode_id,
+            "chunk_index": self.chunk_index,
+            "chunk_id": self.chunk_id,
+            "content": self.content,
+            "episode_number": self.episode_number,
+            "episode_title": self.episode_title,
+            "publication_date": self.publication_date.isoformat() if self.publication_date else None,
+            "novel_id": self.novel_id,
+            "total_chunks": self.total_chunks,
+            "content_length": self.content_length,
+            "embedding": self.embedding
+        }
+
+
+@dataclass
 class EpisodeData:
     """
     Episode data container for processing.
@@ -33,6 +79,7 @@ class EpisodeData:
     # Computed fields
     embedding: Optional[List[float]] = None
     content_length: int = field(init=False)
+    chunks: Optional[List[EpisodeChunk]] = None  # For chunked episodes
     
     def __post_init__(self):
         """Initialize computed fields."""

@@ -219,6 +219,7 @@ class EpisodeVectorStore(LoggerMixin):
     def insert_episodes(self, episodes: List[EpisodeData]) -> Dict[str, Any]:
         """
         Insert episode embeddings into the collection.
+        Handles both regular episodes and chunked episodes.
         
         Args:
             episodes: List of episodes with embeddings
@@ -233,18 +234,49 @@ class EpisodeVectorStore(LoggerMixin):
             return {"inserted_count": 0, "message": "No episodes to insert"}
         
         start_time = time.time()
+        total_inserted = 0
         
         try:
-            # Prepare data for insertion
-            data = self._prepare_insertion_data(episodes)
+            # Separate episodes into regular and chunked
+            regular_episodes = []
+            all_chunks = []
             
-            # Insert data - convert dict to list format for Milvus
-            data_list = [data[field] for field in [
-                "episode_id", "content_embedding", "novel_id", "episode_number", 
-                "episode_title", "content", "content_length", "publication_timestamp", 
-                "publication_date", "created_at", "updated_at"
-            ]]
-            insert_result = self.collection.insert(data_list)
+            for episode in episodes:
+                if episode.chunks:
+                    # Episode is chunked - insert chunks individually
+                    for chunk in episode.chunks:
+                        if chunk.embedding:  # Only insert chunks with embeddings
+                            all_chunks.append(chunk)
+                else:
+                    # Regular episode - insert as is
+                    if episode.embedding:  # Only insert episodes with embeddings
+                        regular_episodes.append(episode)
+            
+            # Insert regular episodes
+            if regular_episodes:
+                data = self._prepare_insertion_data(regular_episodes)
+                data_list = [data[field] for field in [
+                    "episode_id", "content_embedding", "novel_id", "episode_number", 
+                    "episode_title", "content", "content_length", "publication_timestamp", 
+                    "publication_date", "created_at", "updated_at"
+                ]]
+                insert_result = self.collection.insert(data_list)
+                total_inserted += len(regular_episodes)
+                self.logger.info(f"Inserted {len(regular_episodes)} regular episodes")
+            
+            # Insert chunks
+            if all_chunks:
+                chunk_data = self._prepare_chunk_insertion_data(all_chunks)
+                chunk_data_list = [chunk_data[field] for field in [
+                    "episode_id", "content_embedding", "novel_id", "episode_number", 
+                    "episode_title", "content", "content_length", "publication_timestamp", 
+                    "publication_date", "created_at", "updated_at"
+                ]]
+                chunk_insert_result = self.collection.insert(chunk_data_list)
+                total_inserted += len(all_chunks)
+                self.logger.info(f"Inserted {len(all_chunks)} episode chunks")
+            
+            insert_result = {"inserted_count": total_inserted}
             
             # Update statistics
             inserted_count = len(episodes)
@@ -427,6 +459,59 @@ class EpisodeVectorStore(LoggerMixin):
             else:
                 pub_timestamp = 0
                 pub_date_str = ""
+            
+            data["publication_timestamp"].append(pub_timestamp)
+            data["publication_date"].append(pub_date_str)
+            data["created_at"].append(current_timestamp)
+            data["updated_at"].append(current_timestamp)
+        
+        return data
+    
+    def _prepare_chunk_insertion_data(self, chunks) -> Dict[str, List[Any]]:
+        """Prepare chunk data for Milvus insertion."""
+        from .models import EpisodeChunk
+        
+        current_timestamp = int(datetime.now(timezone.utc).timestamp())
+        
+        data = {
+            "episode_id": [],
+            "content_embedding": [],
+            "novel_id": [],
+            "episode_number": [],
+            "episode_title": [],
+            "content": [],
+            "content_length": [],
+            "publication_timestamp": [],
+            "publication_date": [],
+            "created_at": [],
+            "updated_at": []
+        }
+        
+        for chunk in chunks:
+            if not chunk.embedding:
+                raise StorageError(f"Chunk {chunk.chunk_id} has no embedding")
+            
+            # Use chunk_id as unique identifier in episode_id field
+            # This allows us to distinguish chunks from regular episodes
+            chunk_id_numeric = hash(chunk.chunk_id) % (2**31)  # Convert to positive int
+            data["episode_id"].append(chunk_id_numeric)
+            data["content_embedding"].append(chunk.embedding)
+            data["novel_id"].append(chunk.novel_id)
+            data["episode_number"].append(chunk.episode_number)
+            
+            # Add chunk info to title
+            chunk_title = f"{chunk.episode_title} [Chunk {chunk.chunk_index+1}/{chunk.total_chunks}]"
+            data["episode_title"].append(chunk_title[:500])  # Truncate if too long
+            data["content"].append(chunk.content[:20000])  # Truncate if too long
+            data["content_length"].append(chunk.content_length)
+            
+            # Handle publication date
+            if chunk.publication_date:
+                pub_timestamp = int(chunk.publication_date.strftime('%s'))
+                pub_date_str = chunk.publication_date.isoformat()
+            else:
+                pub_timestamp = current_timestamp
+                pub_date_str = datetime.now(timezone.utc).date().isoformat()
             
             data["publication_timestamp"].append(pub_timestamp)
             data["publication_date"].append(pub_date_str)
