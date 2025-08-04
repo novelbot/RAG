@@ -51,5 +51,13 @@ class EmbeddingConfig:
             raise ValueError("OpenAI API key is required")
         if self.provider == EmbeddingProvider.GOOGLE and not self.api_key:
             raise ValueError("Google API key is required")
+        
+        # Set provider-specific base URLs
         if self.provider == EmbeddingProvider.OLLAMA and not self.base_url:
             self.base_url = "http://localhost:11434"
+        elif self.provider == EmbeddingProvider.GOOGLE:
+            # Google API uses default endpoint, don't set base_url
+            self.base_url = None
+        elif self.provider == EmbeddingProvider.OPENAI:
+            # OpenAI API uses default endpoint, don't set base_url
+            self.base_url = None

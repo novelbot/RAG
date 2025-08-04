@@ -44,14 +44,8 @@ def get_vector_search_components():
         _milvus_client = MilvusClient(config.milvus)
         _milvus_client.connect()
         
-        # Initialize embedding manager with Ollama provider
-        embedding_config = EmbeddingConfig(
-            provider=EmbeddingProvider.OLLAMA,
-            model="nomic-embed-text",
-            base_url="http://localhost:11434",
-            dimensions=768
-        )
-        ollama_provider = OllamaEmbeddingProvider(embedding_config)
+        # Initialize embedding manager with configured provider
+        embedding_config = config.embedding
         _embedding_manager = EmbeddingManager([embedding_config])
         
         # Get or create collection
@@ -61,7 +55,7 @@ def get_vector_search_components():
         from ...milvus.schema import RAGCollectionSchema
         schema = RAGCollectionSchema(
             collection_name=collection_name,
-            vector_dim=embedding_config.dimensions
+            vector_dim=config.rag.vector_dimension
         )
         
         _collection = MilvusCollection(_milvus_client, schema)
@@ -70,7 +64,7 @@ def get_vector_search_components():
         if not _milvus_client.has_collection(collection_name):
             _milvus_client.create_collection_if_not_exists(
                 collection_name, 
-                dim=embedding_config.dimensions
+                dim=config.rag.vector_dimension
             )
         
         # Initialize search manager

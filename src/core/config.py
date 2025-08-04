@@ -235,6 +235,11 @@ class ConfigManager:
             provider_str = os.getenv('EMBEDDING_PROVIDER')
             try:
                 self._config.embedding.provider = EmbeddingProvider(provider_str.lower())
+                # Set provider-specific base URLs
+                if self._config.embedding.provider == EmbeddingProvider.OLLAMA:
+                    self._config.embedding.base_url = "http://localhost:11434"
+                elif self._config.embedding.provider in [EmbeddingProvider.GOOGLE, EmbeddingProvider.OPENAI]:
+                    self._config.embedding.base_url = None
             except ValueError:
                 print(f"Warning: Unknown embedding provider in environment: {provider_str}")
         if os.getenv('EMBEDDING_MODEL'):
@@ -242,9 +247,35 @@ class ConfigManager:
         if os.getenv('EMBEDDING_API_KEY'):
             self._config.embedding.api_key = os.getenv('EMBEDDING_API_KEY', self._config.embedding.api_key)
         
-        # RAG overrides
+        # RAG overrides - prioritize .env variables, fallback to dynamic detection
         if os.getenv('VECTOR_DIMENSION'):
             self._config.rag.vector_dimension = int(os.getenv('VECTOR_DIMENSION', str(self._config.rag.vector_dimension)))
+        else:
+            # Try to dynamically detect vector dimension from embedding provider
+            try:
+                if self._config.embedding.provider == EmbeddingProvider.GOOGLE:
+                    from src.embedding.providers.google import GoogleEmbeddingProvider
+                    provider = GoogleEmbeddingProvider(self._config.embedding)
+                    detected_dim = provider._detect_model_dimensions(self._config.embedding.model)
+                    self._config.rag.vector_dimension = detected_dim
+                elif self._config.embedding.provider == EmbeddingProvider.OPENAI:
+                    # OpenAI model dimension mapping
+                    if "text-embedding-3-small" in self._config.embedding.model:
+                        self._config.rag.vector_dimension = 1536
+                    elif "text-embedding-3-large" in self._config.embedding.model:
+                        self._config.rag.vector_dimension = 3072
+                    else:
+                        self._config.rag.vector_dimension = 1536  # default
+                elif self._config.embedding.provider == EmbeddingProvider.OLLAMA:
+                    # Ollama model dimension mapping
+                    if "nomic-embed-text" in self._config.embedding.model:
+                        self._config.rag.vector_dimension = 768
+                    else:
+                        self._config.rag.vector_dimension = 1024  # default
+            except Exception as e:
+                # Fallback to default if dynamic detection fails
+                print(f"Warning: Failed to detect vector dimension: {e}")
+                self._config.rag.vector_dimension = 1024  # safe default
         if os.getenv('RAG_RETRIEVAL_K'):
             self._config.rag.retrieval_k = int(os.getenv('RAG_RETRIEVAL_K', str(self._config.rag.retrieval_k)))
         if os.getenv('RAG_SIMILARITY_THRESHOLD'):

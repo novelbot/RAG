@@ -26,25 +26,24 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
     - text-multilingual-embedding-002
     """
     
-    # Model configurations
+    # Model configurations - dimensions will be detected dynamically
     MODEL_CONFIGS = {
         "text-embedding-004": {
-            "max_dimensions": 768,
-            "default_dimensions": 768,
             "supports_shortening": True,
             "max_tokens": 2048,
             "supported_tasks": ["RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "SEMANTIC_SIMILARITY", "CLASSIFICATION", "CLUSTERING"]
         },
         "text-multilingual-embedding-002": {
-            "max_dimensions": 768,
-            "default_dimensions": 768,
             "supports_shortening": False,
             "max_tokens": 2048,
             "supported_tasks": ["RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "SEMANTIC_SIMILARITY"]
         },
         "embedding-001": {
-            "max_dimensions": 768,
-            "default_dimensions": 768,
+            "supports_shortening": False,
+            "max_tokens": 2048,
+            "supported_tasks": ["RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "SEMANTIC_SIMILARITY"]
+        },
+        "gemini-embedding-001": {
             "supports_shortening": False,
             "max_tokens": 2048,
             "supported_tasks": ["RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "SEMANTIC_SIMILARITY"]
@@ -59,6 +58,9 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
             raise ConfigurationError(f"Invalid provider: {config.provider}")
         
         super().__init__(config)
+        
+        # Cache for dynamically detected dimensions
+        self._model_dimensions_cache = {}
     
     def _initialize_client(self) -> None:
         """Initialize Google GenAI client."""
@@ -68,25 +70,23 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
             )
         
         try:
-            # Configure HTTP options
-            if types is not None:
-                http_options = types.HttpOptions(
-                    timeout=int(self.config.timeout)
-                )
-                if self.config.base_url:
-                    http_options.base_url = self.config.base_url
-            else:
-                http_options = None
-            
+            # Simple client initialization without HTTP options for debugging
             client_kwargs = {
-                "api_key": self.config.api_key,
-                "http_options": http_options
+                "api_key": self.config.api_key
             }
+            
+            # Only add HTTP options if explicitly needed
+            if self.config.base_url:
+                if types is not None:
+                    http_options = types.HttpOptions(base_url=self.config.base_url)
+                    client_kwargs["http_options"] = http_options
             
             self._client = Client(**client_kwargs)
             self._async_client = Client(**client_kwargs)  # Google client handles both sync/async
             
             self.logger.info(f"Initialized Google embedding provider with model: {self.config.model}")
+            self.logger.info(f"Client kwargs: {client_kwargs}")
+            self.logger.info(f"Client type: {type(self._client)}")
             
         except Exception as e:
             raise ConfigurationError(f"Failed to initialize Google client: {e}")
@@ -124,6 +124,10 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
             # Prepare request parameters
             params = self._prepare_request_params(request)
             
+            # Debug logging
+            self.logger.info(f"Google API request params: {params}")
+            self.logger.info(f"API key configured: {bool(self.config.api_key)}")
+            
             # Handle batching for large requests
             if len(request.input) > self.config.batch_size:
                 return self._process_batched_request(request, params)
@@ -145,37 +149,18 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
         """Prepare parameters for Google API call."""
         model = request.model or self.config.model
         
+        # Start with minimal parameters for debugging
         params = {
             "model": model,
             "contents": request.input
         }
         
-        # Configure embedding parameters
-        config_params = {}
-        
-        # Add dimensions if supported and specified
+        # For now, only add dimensions if explicitly requested and supported
         if request.dimensions and self._supports_dimensions(model):
-            config_params["output_dimensionality"] = request.dimensions
-        elif self.config.dimensions and self._supports_dimensions(model):
-            config_params["output_dimensionality"] = self.config.dimensions
-        
-        # Add task type if specified in metadata
-        task_type = request.metadata.get("task_type")
-        if task_type and self._supports_task_type(model, task_type):
-            config_params["task_type"] = task_type
-        
-        # Add title if specified in metadata
-        title = request.metadata.get("title")
-        if title:
-            config_params["title"] = title
-        
-        # Add auto-truncate if specified
-        if request.truncate:
-            config_params["auto_truncate"] = True
-        
-        # Add configuration if any parameters are set
-        if config_params and types is not None:
-            params["config"] = types.EmbedContentConfig(**config_params)
+            if types is not None:
+                params["config"] = types.EmbedContentConfig(
+                    output_dimensionality=request.dimensions
+                )
         
         return params
     
@@ -281,6 +266,31 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
             }
         )
     
+    def _detect_model_dimensions(self, model: str) -> int:
+        """Detect model dimensions by making a test API call."""
+        if model in self._model_dimensions_cache:
+            return self._model_dimensions_cache[model]
+        
+        try:
+            # Make a minimal test call to detect dimensions
+            test_response = self._client.models.embed_content(
+                model=model,
+                contents=["test"]
+            )
+            
+            if test_response.embeddings and len(test_response.embeddings) > 0:
+                dimensions = len(test_response.embeddings[0].values)
+                self._model_dimensions_cache[model] = dimensions
+                self.logger.info(f"Detected dimensions for {model}: {dimensions}")
+                return dimensions
+        except Exception as e:
+            self.logger.warning(f"Failed to detect dimensions for {model}: {e}")
+        
+        # Fallback to config dimensions or default
+        fallback_dim = self.config.dimensions or 768
+        self._model_dimensions_cache[model] = fallback_dim
+        return fallback_dim
+    
     def get_embedding_dimension(self, model: str) -> EmbeddingDimension:
         """Get embedding dimension information."""
         if model not in self.MODEL_CONFIGS:
@@ -288,21 +298,21 @@ class GoogleEmbeddingProvider(BaseEmbeddingProvider):
         
         config = self.MODEL_CONFIGS[model]
         
-        # Determine dimensions
-        dimensions = self.config.dimensions or config["default_dimensions"]
+        # Get dimensions dynamically
+        detected_dimensions = self._detect_model_dimensions(model)
+        dimensions = self.config.dimensions or detected_dimensions
         
         # Generate supported dimensions for models that support shortening
         supported_dims = None
         if config["supports_shortening"]:
-            # Generate common dimension options
-            max_dim = config["max_dimensions"]
-            supported_dims = [128, 256, 512, 768]
-            supported_dims = [d for d in supported_dims if d <= max_dim]
+            # Generate common dimension options up to detected max
+            supported_dims = [128, 256, 512, 768, 1024, 1536, 2048, 3072]
+            supported_dims = [d for d in supported_dims if d <= detected_dimensions]
         
         return EmbeddingDimension(
             dimensions=dimensions,
             model_name=model,
-            max_dimensions=config["max_dimensions"],
+            max_dimensions=detected_dimensions,
             supported_dimensions=supported_dims
         )
     
