@@ -157,8 +157,15 @@ async def initialize_components(config):
             import sys
             current_module = sys.modules[__name__]
             current_module.embedding_manager = embedding_manager
-            # Also store in the main app module for easier access
-            sys.modules['src.core.app'].embedding_manager = embedding_manager
+            
+            # Store in multiple ways to ensure accessibility
+            app_module_name = 'src.core.app'
+            if app_module_name in sys.modules:
+                sys.modules[app_module_name].embedding_manager = embedding_manager
+            
+            # Also store as a global variable for easier access
+            globals()['embedding_manager'] = embedding_manager
+            
             logger.info("✅ Embedding manager initialized")
         else:
             logger.warning("⚠️ No embedding providers configured")

@@ -474,7 +474,7 @@ class VectorSearchEngine(LoggerMixin):
             from src.milvus.schema import RAGCollectionSchema
             schema = RAGCollectionSchema(
                 collection_name=collection_name,
-                vector_dim=metadata.get('vector_dim', 768),
+                vector_dim=metadata.get('vector_dim', 1024),
                 description=metadata.get('description', f"Collection {collection_name}")
             )
             
@@ -600,7 +600,7 @@ class VectorSearchEngine(LoggerMixin):
                     if schema_info['vector_dim'] is None or (
                         field_info.get('dimension', 0) > schema_info['vector_dim']
                     ):
-                        schema_info['vector_dim'] = field_info.get('dimension', 768)
+                        schema_info['vector_dim'] = field_info.get('dimension', 1024)
                 else:
                     schema_info['scalar_fields'].append(field_info)
                 
@@ -612,8 +612,8 @@ class VectorSearchEngine(LoggerMixin):
             
             # Fallback vector dimension if not found
             if schema_info['vector_dim'] is None:
-                schema_info['vector_dim'] = 768
-                self.logger.warning(f"Could not determine vector dimension for collection {collection.name}, using default 768")
+                schema_info['vector_dim'] = 1024
+                self.logger.warning(f"Could not determine vector dimension for collection {collection.name}, using default 1024")
             
             return schema_info
             

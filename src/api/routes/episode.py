@@ -851,13 +851,36 @@ async def perform_episode_vector_search(
         
         # Get global embedding manager from app startup
         import sys
+        embedding_manager = None
+        
+        # Try multiple ways to get the embedding manager
         app_module = sys.modules.get('src.core.app')
-        embedding_manager = getattr(app_module, 'embedding_manager', None)
+        if app_module:
+            embedding_manager = getattr(app_module, 'embedding_manager', None)
+        
+        # Try getting from globals if not found in module
+        if not embedding_manager:
+            try:
+                from ...core.app import embedding_manager as global_embedding_manager
+                embedding_manager = global_embedding_manager
+            except (ImportError, AttributeError):
+                pass
         
         if not embedding_manager:
             logger.warning("Global embedding manager not found, creating new instance")
-            from ...embedding.factory import get_embedding_manager
-            embedding_manager = get_embedding_manager([config.embedding])
+            try:
+                from ...embedding.manager import EmbeddingManager, EmbeddingProviderConfig
+                provider_config = EmbeddingProviderConfig(
+                    provider=config.embedding.provider,
+                    config=config.embedding,
+                    priority=1,
+                    enabled=True
+                )
+                embedding_manager = EmbeddingManager([provider_config], enable_cache=True)
+                logger.info("✅ Created new embedding manager instance")
+            except Exception as e:
+                logger.error(f"Failed to create embedding manager: {e}")
+                raise Exception(f"Cannot initialize embedding manager: {e}")
         
         milvus_client = MilvusClient(config.milvus)
         milvus_client.connect()
@@ -1164,25 +1187,20 @@ async def episode_chat(
         query_context = QueryContext(
             user_id=current_user.id,
             session_id=conversation_id,
-            endpoint="/episode/chat",
             user_agent="",
             ip_address=""
         )
         
         query_metrics = QueryMetrics(
-            query_length=len(request.message),
-            result_count=len(episode_sources),
-            processing_time_ms=(time.time() - start_time) * 1000,
-            model_used="episode-rag-chat"
+            results_count=len(episode_sources),
+            processing_time_ms=(time.time() - start_time) * 1000
         )
         
         background_tasks.add_task(
-            query_logger.log_query,
-            query=request.message,
-            query_type=QueryType.ASK,
-            context=query_context,
-            metrics=query_metrics,
-            response_preview=ai_response[:200]
+            query_logger.create_query_log,
+            query_text=request.message,
+            query_type=QueryType.RAG,
+            context=query_context
         )
         
         # Step 6: Build response with episode metadata
@@ -1232,6 +1250,11 @@ async def episode_chat(
         return response
         
     except Exception as e:
+        # Log the actual error for debugging
+        logger.error(f"Episode chat error: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        
         # Return episode-specific error response
         error_response = EpisodeChatError(
             error_type="invalid_request",
@@ -1244,7 +1267,7 @@ async def episode_chat(
         
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_response.model_dump()
+            detail=error_response.model_dump(mode='json')
         )
 
 
