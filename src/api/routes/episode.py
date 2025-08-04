@@ -1435,26 +1435,20 @@ async def process_all_novels(
         
         novel_ids = []
         try:
-            connection = db_manager.get_connection()
-            
             if request.filter_novel_ids:
                 # Process only specified novels
                 novel_ids = request.filter_novel_ids
             else:
-                # Get all novel IDs from database (CLI-style)
+                # Get all novel IDs from database (CLI-style with proper context manager)
                 from sqlalchemy import text
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT novel_id FROM novels")
-                    results = cursor.fetchall()
-                    novel_ids = [row['novel_id'] for row in results]
+                with db_manager.get_connection() as conn:
+                    result = conn.execute(text("SELECT novel_id FROM novels"))
+                    novel_ids = [row[0] for row in result]
             
         except Exception as e:
             logger.warning(f"Failed to query novels from database: {e}")
             # Fall back to a reasonable range
             novel_ids = list(range(1, 70))  # Process novels 1-69
-        finally:
-            if 'connection' in locals():
-                connection.close()
         
         # Start background processing
         background_tasks.add_task(
