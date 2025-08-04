@@ -9,9 +9,11 @@ import asyncio
 
 # from .models import User  # Commented out to avoid import issues
 from .schemas import UserResponse
-from .sqlite_auth import auth_manager
+from .jwt_manager import JWTManager
+from .exceptions import TokenExpiredError, InvalidTokenError, TokenBlacklistedError
 
 security = HTTPBearer()
+jwt_manager = JWTManager()
 
 
 class MockUser:
@@ -37,18 +39,25 @@ async def get_current_user(token: str = Depends(security)) -> MockUser:
     Raises:
         HTTPException: 401 if token is invalid
     """
-    # 실제 SQLite 기반 토큰 검증
-    session_data = auth_manager.verify_token(token.credentials)
-    
-    if session_data:
+    # JWT Manager 토큰 검증
+    try:
+        token_payload = jwt_manager.validate_token(token.credentials, token_type="access")
+        
         return MockUser(
-            id=str(session_data["user_id"]),
-            username=session_data["username"],
-            email=session_data["email"],
-            roles=[session_data["role"]]
+            id=str(token_payload.user_id),
+            username=token_payload.username,
+            email=token_payload.email,
+            roles=token_payload.roles if token_payload.roles else ["user"]
         )
+        
+    except (TokenExpiredError, InvalidTokenError, TokenBlacklistedError):
+        # JWT Manager validation failed
+        pass
+    except Exception:
+        # Unexpected error
+        pass
     
-    # Fallback to mock tokens for development (remove in production)
+    # Development mock tokens (remove in production)
     if token.credentials == "demo_access_token":
         return MockUser(
             id="demo_user_id",

@@ -120,17 +120,19 @@ async def logout(token: HTTPAuthorizationCredentials = Depends(security)) -> Dic
     """
     # Get user info before invalidating token
     try:
-        session_data = auth_manager.verify_token(token.credentials)
-        if session_data:
-            user_id = str(session_data.get('user_id'))
-            # Log logout event
-            await session_collector.end_session(user_id)
+        token_payload = jwt_manager.validate_token(token.credentials, token_type="access")
+        user_id = str(token_payload.user_id)
+        
+        # Log logout event
+        await session_collector.end_session(user_id)
+        
+        # Blacklist the token
+        jwt_manager.blacklist_token(token.credentials)
+        
     except Exception as e:
-        # Don't fail logout if logging fails
-        print(f"Failed to log logout event: {e}")
+        # Don't fail logout if logging fails or token is invalid
+        print(f"Failed to log logout event or invalidate token: {e}")
     
-    # 실제 토큰 무효화
-    auth_manager.logout(token.credentials)
     return {"message": "Successfully logged out"}
 
 
@@ -178,36 +180,11 @@ async def refresh_token(request: RefreshTokenRequest) -> TokenResponse:
         )
         
     except Exception as e:
-        # If JWT Manager validation fails, fall back to auth_manager for compatibility
-        session_data = auth_manager.verify_token(request.refresh_token)
-        
-        if session_data:
-            # Extract user data for creating new token
-            user_data = {
-                'id': session_data['user_id'],
-                'username': session_data['username'],
-                'email': session_data.get('email', ''),
-                'role': session_data['role']
-            }
-            
-            # Invalidate the old refresh token (token rotation for security)
-            auth_manager.logout(request.refresh_token)
-            
-            # Generate new token pair using JWT Manager
-            token_response = jwt_manager.generate_token_pair(user_data)
-            
-            return TokenResponse(
-                access_token=token_response.access_token,
-                refresh_token=token_response.refresh_token,
-                token_type=token_response.token_type,
-                expires_in=token_response.expires_in
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -224,22 +201,23 @@ async def get_current_user(token: HTTPAuthorizationCredentials = Depends(securit
     Raises:
         HTTPException: 401 if token is invalid
     """
-    # 실제 토큰 검증
-    session_data = auth_manager.verify_token(token.credentials)
-    
-    if session_data:
+    # JWT Manager로 토큰 검증
+    try:
+        token_payload = jwt_manager.validate_token(token.credentials, token_type="access")
+        
         return UserResponse(
-            id=str(session_data["user_id"]),
-            username=session_data["username"],
-            email=session_data["email"],
-            roles=[session_data["role"]],
+            id=str(token_payload.user_id),
+            username=token_payload.username,
+            email=token_payload.email,
+            roles=token_payload.roles if token_payload.roles else ["user"],
             is_active=True
         )
-    
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+        
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 

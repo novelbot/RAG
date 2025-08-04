@@ -5,9 +5,7 @@ SQLite 기반 간단한 인증 시스템
 
 import sqlite3
 import hashlib
-import jwt
 import os
-from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
@@ -16,7 +14,6 @@ class SQLiteAuthManager:
     
     def __init__(self, db_path: str = "auth.db"):
         self.db_path = Path(db_path)
-        self.secret_key = "your-secret-key-here"  # 실제로는 환경변수로 관리
         self._init_database()
         self._create_default_users()
     
@@ -36,16 +33,6 @@ class SQLiteAuthManager:
                 )
             """)
             
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    token TEXT UNIQUE NOT NULL,
-                    expires_at TIMESTAMP NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-            """)
             
             conn.commit()
     
@@ -140,63 +127,8 @@ class SQLiteAuthManager:
         
         return None
     
-    def create_token(self, user_data: Dict[str, Any]) -> str:
-        """JWT 토큰 생성"""
-        payload = {
-            'user_id': user_data['id'],
-            'username': user_data['username'],
-            'role': user_data['role'],
-            'exp': datetime.now(timezone.utc) + timedelta(hours=24)
-        }
-        
-        token = jwt.encode(payload, self.secret_key, algorithm='HS256')
-        
-        # 세션 저장
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO sessions (user_id, token, expires_at)
-                VALUES (?, ?, ?)
-            """, (
-                user_data['id'],
-                token,
-                datetime.now(timezone.utc) + timedelta(hours=24)
-            ))
-            conn.commit()
-        
-        return token
     
-    def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
-        """토큰 검증"""
-        try:
-            payload = jwt.decode(token, self.secret_key, algorithms=['HS256'])
-            
-            # 세션 확인
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("""
-                    SELECT s.*, u.username, u.email, u.role
-                    FROM sessions s
-                    JOIN users u ON s.user_id = u.id
-                    WHERE s.token = ? AND s.expires_at > CURRENT_TIMESTAMP
-                """, (token,))
-                
-                session = cursor.fetchone()
-                if session:
-                    return dict(session)
-            
-        except jwt.ExpiredSignatureError:
-            pass
-        except jwt.InvalidTokenError:
-            pass
-        
-        return None
     
-    def logout(self, token: str) -> bool:
-        """로그아웃 (토큰 무효화)"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
-            conn.commit()
-            return cursor.rowcount > 0
     
     
     def get_users(self) -> List[Dict[str, Any]]:
@@ -209,6 +141,7 @@ class SQLiteAuthManager:
                 ORDER BY created_at DESC
             """)
             return [dict(row) for row in cursor.fetchall()]
+    
 
 # 전역 인스턴스
 auth_manager = SQLiteAuthManager()
