@@ -9,11 +9,13 @@ import asyncio
 
 from ...auth.dependencies import MockUser
 from ...auth.sqlite_auth import auth_manager
+from ...auth.jwt_manager import JWTManager
 from ..schemas import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse, RefreshTokenRequest
 from ...metrics.collectors import session_collector
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 security = HTTPBearer()
+jwt_manager = JWTManager()
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -35,7 +37,8 @@ async def login(request: LoginRequest, http_request: Request) -> TokenResponse:
     user_data = auth_manager.authenticate(request.username, request.password)
     
     if user_data:
-        token = auth_manager.create_token(user_data)
+        # JWT Manager를 사용하여 올바른 토큰 쌍 생성
+        token_response = jwt_manager.generate_token_pair(user_data)
         
         # Log successful login event
         try:
@@ -56,10 +59,10 @@ async def login(request: LoginRequest, http_request: Request) -> TokenResponse:
             print(f"Failed to log login event: {e}")
         
         return TokenResponse(
-            access_token=token,
-            refresh_token=token,  # 간단히 같은 토큰 사용
-            token_type="bearer",
-            expires_in=86400  # 24시간
+            access_token=token_response.access_token,
+            refresh_token=token_response.refresh_token,
+            token_type=token_response.token_type,
+            expires_in=token_response.expires_in
         )
     
     raise HTTPException(
@@ -148,35 +151,63 @@ async def refresh_token(request: RefreshTokenRequest) -> TokenResponse:
     # Simulate async token refresh process
     await asyncio.sleep(0.1)
     
-    # Verify the refresh token using auth_manager
-    session_data = auth_manager.verify_token(request.refresh_token)
-    
-    if session_data:
-        # Extract user data for creating new token
+    try:
+        # Verify the refresh token using JWT Manager
+        token_payload = jwt_manager.validate_token(request.refresh_token, token_type="refresh")
+        
+        # Get user data from the database using token payload
         user_data = {
-            'id': session_data['user_id'],
-            'username': session_data['username'],
-            'role': session_data['role']
+            'id': token_payload.user_id,
+            'username': token_payload.username,
+            'email': token_payload.email,
+            'roles': token_payload.roles,
+            'permissions': token_payload.permissions
         }
         
-        # Invalidate the old refresh token (token rotation for security)
-        auth_manager.logout(request.refresh_token)
+        # Blacklist the old refresh token (token rotation for security)
+        jwt_manager.blacklist_token(request.refresh_token)
         
-        # Create new token
-        new_token = auth_manager.create_token(user_data)
+        # Generate new token pair
+        token_response = jwt_manager.generate_token_pair(user_data)
         
         return TokenResponse(
-            access_token=new_token,
-            refresh_token=new_token,  # Using same token for both (existing pattern)
-            token_type="bearer",
-            expires_in=86400  # 24 hours
+            access_token=token_response.access_token,
+            refresh_token=token_response.refresh_token,
+            token_type=token_response.token_type,
+            expires_in=token_response.expires_in
         )
-    
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid refresh token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+        
+    except Exception as e:
+        # If JWT Manager validation fails, fall back to auth_manager for compatibility
+        session_data = auth_manager.verify_token(request.refresh_token)
+        
+        if session_data:
+            # Extract user data for creating new token
+            user_data = {
+                'id': session_data['user_id'],
+                'username': session_data['username'],
+                'email': session_data.get('email', ''),
+                'role': session_data['role']
+            }
+            
+            # Invalidate the old refresh token (token rotation for security)
+            auth_manager.logout(request.refresh_token)
+            
+            # Generate new token pair using JWT Manager
+            token_response = jwt_manager.generate_token_pair(user_data)
+            
+            return TokenResponse(
+                access_token=token_response.access_token,
+                refresh_token=token_response.refresh_token,
+                token_type=token_response.token_type,
+                expires_in=token_response.expires_in
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
 
 @router.get("/me", response_model=UserResponse)

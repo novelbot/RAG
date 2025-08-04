@@ -28,6 +28,7 @@ from ...episode import (
 from ...core.exceptions import SearchError, ProcessingError, StorageError
 from ...core.config import get_config
 from ...database.base import DatabaseManager
+from ...services.query_logger import QueryLogger, QueryContext, QueryMetrics, QueryType, query_logger
 from ...embedding.manager import EmbeddingManager
 from ...milvus.client import MilvusClient
 from ...response_generation import (

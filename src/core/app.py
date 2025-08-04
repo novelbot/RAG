@@ -96,7 +96,7 @@ async def initialize_components(config):
         # Add primary LLM provider
         if config.llm.provider and (config.llm.api_key or config.llm.provider.lower() == 'ollama'):
             try:
-                provider_enum = LLMProvider(config.llm.provider.upper())
+                provider_enum = LLMProvider(config.llm.provider.lower())
                 provider_config = ProviderConfig(
                     provider=provider_enum,
                     config=config.llm,
