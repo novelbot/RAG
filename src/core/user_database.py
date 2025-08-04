@@ -70,7 +70,9 @@ def create_user_tables():
     # Update Base metadata to use UserBase
     for model_class in [ConversationSession, ConversationTurn, QueryLog]:
         if hasattr(model_class, '__table__'):
-            model_class.__table__.tometadata(UserBase.metadata)
+            table_name = model_class.__table__.name
+            if table_name not in UserBase.metadata.tables:
+                model_class.__table__.tometadata(UserBase.metadata)
     
     # Create tables
     UserBase.metadata.create_all(bind=user_engine)
