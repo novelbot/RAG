@@ -155,7 +155,10 @@ async def initialize_components(config):
             
             # Store manager globally for access by other components
             import sys
-            sys.modules[__name__].embedding_manager = embedding_manager
+            current_module = sys.modules[__name__]
+            current_module.embedding_manager = embedding_manager
+            # Also store in the main app module for easier access
+            sys.modules['src.core.app'].embedding_manager = embedding_manager
             logger.info("✅ Embedding manager initialized")
         else:
             logger.warning("⚠️ No embedding providers configured")
@@ -197,7 +200,7 @@ async def cleanup_components():
     # Cleanup embedding models
     try:
         import sys
-        embedding_manager = getattr(sys.modules.get(__name__), 'embedding_manager', None)
+        embedding_manager = getattr(sys.modules.get('src.core.app'), 'embedding_manager', None)
         if embedding_manager:
             # Clear embedding cache
             embedding_manager.clear_cache()

@@ -285,9 +285,10 @@ class EpisodeSearchEngine(LoggerMixin):
     def _generate_query_embedding(self, query: str) -> List[float]:
         """Generate embedding for search query."""
         try:
+            # Use the same model as configured in the embedding manager
+            # instead of hardcoded OpenAI model
             request = EmbeddingRequest(
                 input=[query],
-                model="text-embedding-ada-002",  # Default model
                 encoding_format="float",
                 metadata={"is_query": True}
             )
@@ -313,9 +314,14 @@ class EpisodeSearchEngine(LoggerMixin):
         hits = []
         
         # Process vector search hits
+        self.logger.info(f"Vector result structure: {type(vector_result)}")
+        self.logger.info(f"Vector result hits: {vector_result.hits if hasattr(vector_result, 'hits') else 'No hits attribute'}")
+        
         if vector_result.hits and len(vector_result.hits) > 0:
-            for hit in vector_result.hits[0]:  # First query results
+            self.logger.info(f"First hit list length: {len(vector_result.hits[0])}")
+            for i, hit in enumerate(vector_result.hits[0]):  # First query results
                 try:
+                    self.logger.info(f"Processing hit {i}: {hit}")
                     episode_hit = EpisodeSearchHit(
                         episode_id=hit.entity.get("episode_id"),
                         episode_number=hit.entity.get("episode_number"),
@@ -329,9 +335,12 @@ class EpisodeSearchEngine(LoggerMixin):
                         metadata=hit.metadata
                     )
                     hits.append(episode_hit)
+                    self.logger.info(f"Successfully converted hit {i}")
                 except Exception as e:
-                    self.logger.warning(f"Failed to convert hit: {e}")
+                    self.logger.warning(f"Failed to convert hit {i}: {e}")
                     continue
+        else:
+            self.logger.warning("No vector search hits found or empty result")
         
         # Create result
         result = EpisodeSearchResult(

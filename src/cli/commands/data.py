@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..utils import (
-    console, confirm_action, create_progress_bar, 
+    console, confirm_action, create_progress_bar, create_detailed_progress_bar,
     validate_directory_path, ProgressCallback
 )
 
@@ -32,6 +32,8 @@ def data_group():
               help='Path to data directory or file to ingest.')
 @click.option('--database/--no-database', default=False,
               help='Use database mode for RDB to vector ingestion.')
+@click.option('--episode-mode/--no-episode-mode', default=False,
+              help='Use episode-specific processing with improved chunking.')
 @click.option('--recursive/--no-recursive', default=True,
               help='Recursively process subdirectories.')
 @click.option('--file-types', default='txt,pdf,docx,md',
@@ -40,7 +42,7 @@ def data_group():
               help='Number of files to process in each batch.')
 @click.option('--force/--no-force', default=False,
               help='Force re-ingestion of existing files.')
-def ingest_data(path, database, recursive, file_types, batch_size, force):
+def ingest_data(path, database, episode_mode, recursive, file_types, batch_size, force):
     """Ingest data from directory or file.
     
     Processes files from the specified path and ingests them into
@@ -50,10 +52,119 @@ def ingest_data(path, database, recursive, file_types, batch_size, force):
     Examples:
         rag-cli data ingest --path ./documents
         rag-cli data ingest --database --batch-size 50 --force
+        rag-cli data ingest --episode-mode --database
         rag-cli data ingest --path ./file.pdf --file-types pdf
     """
-    # Check mode: database vs file
-    if database:
+    # Check mode: episode vs database vs file
+    if episode_mode:
+        console.print(f"[yellow]Starting Episode-specific processing with improved chunking[/yellow]")
+        
+        # Import episode-specific components
+        try:
+            from src.episode.manager import EpisodeRAGManager
+            from src.core.config import get_config
+            import asyncio
+            
+            config = get_config()
+            
+            async def run_episode_processing():
+                from src.database.base import DatabaseManager
+                from src.embedding.manager import EmbeddingManager
+                from src.milvus.client import MilvusClient
+                from src.episode.manager import EpisodeRAGConfig
+                
+                # Initialize dependencies  
+                db_manager = DatabaseManager(config.database)
+                
+                # Create embedding provider configs list
+                if config.embedding_providers:
+                    provider_configs = list(config.embedding_providers.values())
+                else:
+                    # Fallback to single embedding config
+                    provider_configs = [config.embedding]
+                    
+                embedding_manager = EmbeddingManager(provider_configs)
+                milvus_client = MilvusClient(config.milvus)
+                episode_config = EpisodeRAGConfig(
+                    processing_batch_size=5,  # Further reduce batch size for stability  
+                    vector_dimension=1024  # Match Ollama model dimension
+                )
+                
+                episode_manager = EpisodeRAGManager(
+                    database_manager=db_manager,
+                    embedding_manager=embedding_manager,
+                    milvus_client=milvus_client,
+                    config=episode_config
+                )
+                
+                # Connect to Milvus first
+                milvus_client.connect()
+                
+                # Setup collection first
+                await episode_manager.setup_collection(drop_existing=True)
+                
+                # Get available novels from database directly
+                from sqlalchemy import text
+                with db_manager.get_connection() as conn:
+                    result = conn.execute(text("SELECT novel_id FROM novels"))
+                    novel_ids = [row[0] for row in result]
+                
+                console.print(f"Found {len(novel_ids)} novels to process")
+                
+                total_processed = 0
+                total_failed = 0
+                
+                with create_detailed_progress_bar() as progress:
+                    task = progress.add_task(
+                        "Processing novels...", 
+                        total=len(novel_ids),
+                        stage="🚀 Starting",
+                        current_item="",
+                        rate="0/sec"
+                    )
+                    
+                    progress_callback = ProgressCallback(progress, task, len(novel_ids))
+                    progress_callback.start("Initializing episode processing...")
+                    
+                    for i, novel_id in enumerate(novel_ids, 1):
+                        try:
+                            progress_callback.update_item(f"Novel {novel_id}", i-1)
+                            
+                            # Add delay between novels to prevent Ollama overload
+                            if i > 1:
+                                await asyncio.sleep(2)  # 2 second delay
+                            
+                            result = await episode_manager.process_novel(novel_id, force_reprocess=True)
+                            
+                            episode_count = result.get('processed_count', 0)
+                            total_processed += episode_count
+                            
+                            console.print(f"[green]✓ Novel {novel_id}: {episode_count} episodes processed[/green]")
+                            
+                        except Exception as e:
+                            total_failed += 1
+                            progress_callback.mark_failed(f"Novel {novel_id}")
+                            console.print(f"[red]✗ Failed to process Novel {novel_id}: {e}[/red]")
+                            continue
+                    
+                    progress_callback.complete("All novels processed")
+                
+                console.print(f"[green]✓ Episode processing completed[/green]")
+                console.print(f"[dim]Total episodes processed: {total_processed}[/dim]")
+                console.print(f"[dim]Failed novels: {total_failed}[/dim]")
+            
+            # Run episode processing
+            asyncio.run(run_episode_processing())
+            return
+            
+        except ImportError as e:
+            console.print(f"[red]✗ Episode processing not available: {e}[/red]")
+            return
+        except Exception as e:
+            console.print(f"[red]✗ Episode processing failed: {e}[/red]")
+            return
+    
+    elif database:
         console.print(f"[yellow]Starting RDB to Vector database ingestion[/yellow]")
         data_path = None
     elif path:
@@ -326,6 +437,135 @@ def ingest_data(path, database, recursive, file_types, batch_size, force):
         import traceback
         if force:
             console.print(f"[dim]Error details: {traceback.format_exc()}[/dim]")
+
+
+@data_group.command(name='retry-failed')
+@click.option('--novel-ids', required=True, type=str,
+              help='Comma-separated list of novel IDs to retry (e.g., "78,32,25")')
+@click.option('--conservative/--normal', default=True,
+              help='Use conservative settings (smaller batches, longer delays)')
+@click.option('--max-retries', default=5, type=int,
+              help='Maximum retry attempts per episode')
+def retry_failed_novels(novel_ids, conservative, max_retries):
+    """Retry processing for specific failed novels.
+    
+    Uses improved stability settings to retry novels that failed
+    during previous processing runs.
+    
+    Examples:
+        rag-cli data retry-failed --novel-ids="78,32"
+        rag-cli data retry-failed --novel-ids="78" --conservative --max-retries=10
+    """
+    console.print(f"[yellow]Retrying failed novels: {novel_ids}[/yellow]")
+    
+    # Parse novel IDs
+    try:
+        novel_id_list = [int(id.strip()) for id in novel_ids.split(',')]
+    except ValueError as e:
+        console.print(f"[red]✗ Invalid novel IDs format: {e}[/red]")
+        return
+    
+    console.print(f"[dim]Target novels: {novel_id_list}[/dim]")
+    console.print(f"[dim]Conservative mode: {conservative}, Max retries: {max_retries}[/dim]")
+    
+    try:
+        import asyncio
+        from src.episode.manager import EpisodeRAGManager
+        from src.core.config import get_config
+        
+        config = get_config()
+        
+        async def run_retry_processing():
+            from src.database.base import DatabaseManager
+            from src.embedding.manager import EmbeddingManager
+            from src.milvus.client import MilvusClient
+            from src.episode.manager import EpisodeRAGConfig
+            
+            # Initialize dependencies
+            db_manager = DatabaseManager(config.database)
+            
+            if config.embedding_providers:
+                provider_configs = list(config.embedding_providers.values())
+            else:
+                provider_configs = [config.embedding]
+                
+            embedding_manager = EmbeddingManager(provider_configs)
+            milvus_client = MilvusClient(config.milvus)
+            
+            # Conservative settings for retry
+            if conservative:
+                batch_size = 2
+                console.print("[dim]Using conservative settings: batch_size=2[/dim]")
+            else:
+                batch_size = 5
+                console.print("[dim]Using normal settings: batch_size=5[/dim]")
+            
+            episode_config = EpisodeRAGConfig(
+                processing_batch_size=batch_size,
+                vector_dimension=1024
+            )
+            
+            episode_manager = EpisodeRAGManager(
+                database_manager=db_manager,
+                embedding_manager=embedding_manager,
+                milvus_client=milvus_client,
+                config=episode_config
+            )
+            
+            # Connect to Milvus
+            milvus_client.connect()
+            
+            success_count = 0
+            failed_novels = []
+            
+            for i, novel_id in enumerate(novel_id_list, 1):
+                try:
+                    console.print(f"[blue]Processing novel {novel_id}... ({i}/{len(novel_id_list)})[/blue]")
+                    
+                    # Provider health check
+                    primary_provider = list(embedding_manager.providers.values())[0] if embedding_manager.providers else None
+                    if primary_provider and hasattr(primary_provider, 'health_check'):
+                        health = primary_provider.health_check()
+                        if health.get('status') != 'healthy':
+                            console.print(f"[yellow]⚠ Provider unhealthy, waiting 10s...[/yellow]")
+                            await asyncio.sleep(10)
+                    
+                    # Process novel
+                    await episode_manager.process_novel(novel_id)
+                    
+                    console.print(f"[green]✓ Novel {novel_id} completed successfully[/green]")
+                    success_count += 1
+                    
+                    # Wait between novels
+                    if i < len(novel_id_list):
+                        wait_time = 10 if conservative else 5
+                        console.print(f"[dim]Waiting {wait_time}s before next novel...[/dim]")
+                        await asyncio.sleep(wait_time)
+                        
+                except Exception as e:
+                    console.print(f"[red]✗ Novel {novel_id} failed: {e}[/red]")
+                    failed_novels.append(novel_id)
+                    
+                    # Wait longer after failure
+                    console.print("[dim]Waiting 15s after failure...[/dim]")
+                    await asyncio.sleep(15)
+            
+            # Final results
+            console.print(f"[green]✓ Retry completed: {success_count}/{len(novel_id_list)} successful[/green]")
+            
+            if failed_novels:
+                console.print(f"[red]✗ Still failed: {failed_novels}[/red]")
+                console.print("[dim]Consider checking Ollama server status or system resources[/dim]")
+            else:
+                console.print("[green]🎉 All novels processed successfully![/green]")
+        
+        # Run retry processing
+        asyncio.run(run_retry_processing())
+        
+    except ImportError as e:
+        console.print(f"[red]✗ Missing dependencies: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]✗ Retry processing failed: {e}[/red]")
 
 
 @data_group.command(name='sync')
@@ -1044,3 +1284,144 @@ def cleanup_data(orphaned, old_embeddings, confirm):
         console.print(f"[red]✗ Data cleanup failed: {e}[/red]")
         import traceback
         console.print(f"[dim]Error details: {traceback.format_exc()}[/dim]")
+
+
+@data_group.command(name='process-novel')
+@click.option('--novel-id', required=True, type=int,
+              help='Novel ID to process episodes for.')
+@click.option('--force/--no-force', default=False,
+              help='Force reprocessing even if already processed.')
+@click.option('--verbose/--no-verbose', default=True,
+              help='Show detailed progress information.')
+@click.option('--retry-failed/--no-retry-failed', default=False,
+              help='Retry only failed episodes from previous run')
+def process_novel(novel_id, force, verbose, retry_failed):
+    """Process episodes for a specific novel.
+    
+    Uses the improved episode processing logic with individual
+    episode handling and automatic chunking for long content.
+    
+    Examples:
+        rag-cli data process-novel --novel-id 25
+        rag-cli data process-novel --novel-id 67 --force
+        rag-cli data process-novel --novel-id 65 --no-verbose
+    """
+    console.print(f"[yellow]Processing episodes for Novel {novel_id}[/yellow]")
+    
+    if verbose:
+        console.print(f"[dim]Using improved episode processing with chunking[/dim]")
+        console.print(f"[dim]Force reprocessing: {force}[/dim]")
+    
+    try:
+        from src.episode.manager import EpisodeRAGManager
+        from src.core.config import get_config
+        import asyncio
+        import time
+        
+        config = get_config()
+        
+        async def run_novel_processing():
+            start_time = time.time()
+            
+            from src.database.base import DatabaseManager
+            from src.embedding.manager import EmbeddingManager
+            from src.milvus.client import MilvusClient
+            from src.episode.manager import EpisodeRAGConfig
+            
+            # Initialize dependencies
+            db_manager = DatabaseManager(config.database)
+            
+            # Create embedding provider configs list
+            if config.embedding_providers:
+                provider_configs = list(config.embedding_providers.values())
+            else:
+                # Fallback to single embedding config
+                provider_configs = [config.embedding]
+                
+            embedding_manager = EmbeddingManager(provider_configs)
+            milvus_client = MilvusClient(config.milvus)
+            episode_config = EpisodeRAGConfig(
+                processing_batch_size=5,  # Further reduce batch size for stability
+                vector_dimension=1024  # Match Ollama model dimension
+            )
+            
+            episode_manager = EpisodeRAGManager(
+                database_manager=db_manager,
+                embedding_manager=embedding_manager,
+                milvus_client=milvus_client,
+                config=episode_config
+            )
+            
+            # Connect to Milvus first
+            milvus_client.connect()
+            
+            # Setup collection first
+            await episode_manager.setup_collection(drop_existing=force)
+            
+            # Check if novel exists
+            from sqlalchemy import text
+            with db_manager.get_connection() as conn:
+                result = conn.execute(text("SELECT novel_id FROM novels"))
+                novel_ids = [row[0] for row in result]
+            
+            if novel_id not in novel_ids:
+                console.print(f"[red]✗ Novel {novel_id} not found in database[/red]")
+                console.print(f"[dim]Available novels: {sorted(novel_ids)}[/dim]")
+                return
+            
+            if verbose:
+                console.print(f"[green]✓ Novel {novel_id} found in database[/green]")
+            
+            # Process the novel
+            with create_detailed_progress_bar() as progress:
+                task = progress.add_task(
+                    f"Processing Novel {novel_id}...", 
+                    total=1,
+                    stage="🚀 Starting",
+                    current_item=f"Novel {novel_id}",
+                    rate="0/sec"
+                )
+                
+                progress_callback = ProgressCallback(progress, task, 1)
+                progress_callback.start(f"Initializing Novel {novel_id} processing...")
+                
+                try:
+                    progress_callback.update_item(f"Processing episodes for Novel {novel_id}", 0)
+                    result = await episode_manager.process_novel(novel_id, force_reprocess=force)
+                    
+                    processing_time = time.time() - start_time
+                    
+                    # Mark as complete
+                    progress_callback.complete(f"Novel {novel_id} completed")
+                    
+                    # Display results
+                    console.print(f"[green]✓ Novel {novel_id} processing completed[/green]")
+                    
+                    if verbose:
+                        console.print(f"[dim]Processing time: {processing_time:.1f}s[/dim]")
+                        console.print(f"[dim]Episodes processed: {result.get('processed_count', 0)}[/dim]")
+                        console.print(f"[dim]Episodes failed: {result.get('failed_count', 0)}[/dim]")
+                        
+                        if result.get('stats'):
+                            stats = result['stats']
+                            console.print(f"[dim]Average content length: {stats.get('average_content_length', 0):.0f} chars[/dim]")
+                            console.print(f"[dim]Success rate: {stats.get('success_rate', 0):.1f}%[/dim]")
+                    
+                except Exception as e:
+                    progress_callback.mark_failed(f"Novel {novel_id}")
+                    console.print(f"[red]✗ Failed to process Novel {novel_id}: {e}[/red]")
+                    if verbose:
+                        import traceback
+                        console.print(f"[dim]Error details: {traceback.format_exc()}[/dim]")
+        
+        # Run processing
+        asyncio.run(run_novel_processing())
+        
+    except ImportError as e:
+        console.print(f"[red]✗ Episode processing not available: {e}[/red]")
+        console.print("[dim]Please ensure all required packages are installed[/dim]")
+    except Exception as e:
+        console.print(f"[red]✗ Novel processing failed: {e}[/red]")
+        if verbose:
+            import traceback
+            console.print(f"[dim]Error details: {traceback.format_exc()}[/dim]")

@@ -205,24 +205,10 @@ class EpisodeVectorStore(LoggerMixin):
                 index_params=vector_index_params
             )
             
-            # Scalar indexes for filtering
-            scalar_indexes = [
-                ("episode_id", "BTREE"),  # Primary key (automatic)
-                ("novel_id", "BTREE"),
-                ("episode_number", "BTREE"),
-                ("publication_timestamp", "BTREE"),
-                ("created_at", "BTREE")
-            ]
-            
-            for field_name, index_type in scalar_indexes:
-                try:
-                    if field_name != "episode_id":  # Skip primary key
-                        self.collection.create_index(
-                            field_name=field_name,
-                            index_params={"index_type": index_type}
-                        )
-                except Exception as e:
-                    self.logger.warning(f"Failed to create index on {field_name}: {e}")
+            # Note: Milvus does not support scalar field indexes like BTREE
+            # Scalar fields can be used for filtering via expr parameter in search/query
+            # but cannot have dedicated indexes for performance optimization
+            self.logger.info("Vector index created. Scalar fields available for filtering without indexes")
             
             self.logger.info("Created indexes on collection")
             

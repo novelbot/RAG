@@ -403,8 +403,57 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             return EmbeddingError(f"Ollama model not found: {error_msg}")
         elif "timeout" in error_msg.lower():
             return EmbeddingError(f"Ollama request timeout: {error_msg}")
+        elif "no available providers" in error_msg.lower():
+            return EmbeddingError(f"Ollama provider unavailable: {error_msg}")
         else:
             return EmbeddingError(f"Ollama API error: {error_msg}")
+    
+    def health_check(self) -> Dict[str, Any]:
+        """Check Ollama server health and model availability."""
+        try:
+            start_time = time.time()
+            
+            # Test basic connectivity
+            models_response = self._client.list()
+            response_time = time.time() - start_time
+            
+            # Check if our model is available
+            available_models = []
+            for model in models_response.get("models", []):
+                model_name = model.get("name", "") or model.get("model", "")
+                if model_name:
+                    available_models.append(model_name)
+                    base_name = model_name.split(":")[0]
+                    if base_name != model_name:
+                        available_models.append(base_name)
+            
+            model_available = self.config.model in available_models
+            
+            # Try a small embedding test
+            embedding_test_success = False
+            try:
+                test_response = self._client.embed(model=self.config.model, input=["test"])
+                embedding_test_success = bool(test_response.get("embeddings"))
+            except Exception as e:
+                self.logger.warning(f"Embedding test failed: {e}")
+            
+            status = "healthy" if model_available and embedding_test_success else "degraded"
+            
+            return {
+                "status": status,
+                "response_time": response_time,
+                "model_available": model_available,
+                "embedding_test": embedding_test_success,
+                "available_models": available_models[:5],  # Limit for readability
+                "timestamp": time.time()
+            }
+            
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "timestamp": time.time()
+            }
     
     def pull_model(self, model: str) -> bool:
         """Pull a model from Ollama registry."""

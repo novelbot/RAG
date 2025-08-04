@@ -25,7 +25,7 @@ class EpisodeProcessingConfig:
     batch_size: int = 100
     max_content_length: int = 10000  # Max characters per episode
     min_content_length: int = 50     # Min characters to process
-    embedding_model: str = "text-embedding-ada-002"
+    embedding_model: Optional[str] = None  # Use embedding manager's default model
     enable_content_cleaning: bool = True
     enable_chunking: bool = False    # Split long episodes into chunks
     chunk_size: int = 2000          # Characters per chunk
@@ -286,36 +286,197 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
         return cleaned
     
     def _generate_embeddings_batch(self, episodes: List[EpisodeData]) -> None:
-        """Generate embeddings for a batch of episodes."""
+        """Generate embeddings for episodes with individual processing and chunking."""
         start_time = time.time()
+        total_episodes = len(episodes)
+        processed_count = 0
         
         try:
-            # Prepare embedding request
-            texts = [episode.content for episode in episodes]
-            request = EmbeddingRequest(
-                input=texts,
-                model=self.config.embedding_model,
-                encoding_format="float"
-            )
+            self.logger.info(f"🚀 에피소드 임베딩 개별 처리 시작: {total_episodes}개")
             
-            # Generate embeddings
-            response = self.embedding_manager.generate_embeddings(request)
-            
-            # Assign embeddings to episodes
-            if len(response.embeddings) != len(episodes):
-                raise EmbeddingError(f"Embedding count mismatch: {len(response.embeddings)} != {len(episodes)}")
-            
-            for episode, embedding in zip(episodes, response.embeddings):
-                episode.embedding = embedding
+            for i, episode in enumerate(episodes, 1):
+                try:
+                    self._generate_single_episode_embedding(episode)
+                    processed_count += 1
+                    
+                    if i % 5 == 0 or i == total_episodes:
+                        self.logger.info(f"📊 진행상황: {i}/{total_episodes} ({(i/total_episodes)*100:.1f}%)")
+                
+                except Exception as e:
+                    self.logger.error(f"❌ Episode {episode.episode_id} 임베딩 실패: {e}")
+                    # 개별 에피소드 실패는 전체 처리를 중단하지 않음
+                    continue
             
             # Update statistics
             self.stats.embedding_generation_time += time.time() - start_time
             
-            self.logger.debug(f"Generated embeddings for {len(episodes)} episodes")
+            self.logger.info(f"✅ 임베딩 처리 완료: {processed_count}/{total_episodes} 성공")
             
         except Exception as e:
             self.logger.error(f"Batch embedding generation failed: {e}")
             raise EmbeddingError(f"Batch embedding generation failed: {e}")
+    
+    def _generate_single_episode_embedding(self, episode: EpisodeData) -> None:
+        """Generate embedding for a single episode with chunking if needed."""
+        max_retries = 5  # 3 -> 5로 증가
+        base_delay = 5.0  # 2.0 -> 5.0초로 증가
+        
+        for attempt in range(max_retries):
+            try:
+                # Check provider health before processing
+                primary_provider = list(self.embedding_manager.providers.values())[0] if self.embedding_manager.providers else None
+                if primary_provider and hasattr(primary_provider, 'health_check'):
+                    health = primary_provider.health_check()
+                    if health.get('status') != 'healthy':
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt) 
+                            self.logger.warning(f"⚠️ Provider unhealthy, waiting {delay}s before retry {attempt + 1}")
+                            time.sleep(delay)
+                            continue
+                        else:
+                            raise EmbeddingError(f"Provider unhealthy after {max_retries} attempts")
+                
+                # Additional delay before processing to reduce server load
+                import time
+                time.sleep(1)  # 모든 에피소드 처리 전 1초 대기
+                
+                content = episode.content
+                content_length = len(content)
+                
+                # 토큰 수 대략 추정 (한국어: 문자당 약 1.5토큰, 영어: 4문자당 1토큰)
+                estimated_tokens = int(content_length * 1.5)  # 한국어 기준 보수적 추정
+                
+                if estimated_tokens <= 2000:
+                    # 단일 임베딩
+                    self._generate_single_embedding(episode, content)
+                else:
+                    # 청킹 필요
+                    self.logger.debug(f"📚 Episode {episode.episode_id}: {estimated_tokens}토큰 추정, 청킹 처리")
+                    self._generate_chunked_embedding(episode, content)
+                
+                # Success - break out of retry loop
+                break
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "no available providers" in error_msg or "provider unavailable" in error_msg:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        self.logger.warning(f"⚠️ Episode {episode.episode_id}: Provider unavailable, retry {attempt + 1}/{max_retries} in {delay}s")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        self.logger.error(f"❌ Episode {episode.episode_id}: Provider permanently unavailable after {max_retries} attempts")
+                        raise
+                else:
+                    # For other errors, don't retry
+                    self.logger.error(f"❌ Episode {episode.episode_id}: Non-retryable error: {e}")
+                    raise
+    
+    def _generate_single_embedding(self, episode: EpisodeData, content: str) -> None:
+        """Generate single embedding for episode content."""
+        try:
+            request = EmbeddingRequest(
+                input=[content],
+                encoding_format="float"
+            )
+            
+            response = self.embedding_manager.generate_embeddings(request)
+            
+            if len(response.embeddings) != 1:
+                raise EmbeddingError(f"Expected 1 embedding, got {len(response.embeddings)}")
+            
+            episode.embedding = response.embeddings[0]
+            self.logger.debug(f"✅ Episode {episode.episode_id}: 단일 임베딩 완료")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Episode {episode.episode_id} 단일 임베딩 실패: {e}")
+            raise
+    
+    def _generate_chunked_embedding(self, episode: EpisodeData, content: str) -> None:
+        """Generate embedding for long episode content by chunking."""
+        try:
+            # 청크 크기 설정 (보수적으로 1500자 = 약 2250토큰)
+            chunk_size = 1500
+            overlap = 200  # 청크 간 중복
+            
+            chunks = self._split_content_into_chunks(content, chunk_size, overlap)
+            self.logger.debug(f"📚 Episode {episode.episode_id}: {len(chunks)}개 청크로 분할")
+            
+            # 각 청크에 대해 임베딩 생성 (더 안전한 처리)
+            chunk_embeddings = []
+            for i, chunk in enumerate(chunks):
+                chunk_retries = 3
+                chunk_success = False
+                
+                for chunk_attempt in range(chunk_retries):
+                    try:
+                        # 청크 간 더 긴 대기 시간
+                        if i > 0:  # 첫 번째 청크가 아닌 경우
+                            time.sleep(3)
+                        
+                        request = EmbeddingRequest(
+                            input=[chunk],
+                            encoding_format="float"
+                        )
+                        
+                        response = self.embedding_manager.generate_embeddings(request)
+                        chunk_embeddings.append(response.embeddings[0])
+                        chunk_success = True
+                        self.logger.debug(f"✅ Episode {episode.episode_id} 청크 {i+1}/{len(chunks)} 성공")
+                        break
+                        
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Episode {episode.episode_id} 청크 {i+1} 시도 {chunk_attempt+1} 실패: {e}")
+                        if chunk_attempt < chunk_retries - 1:
+                            chunk_delay = 3 * (2 ** chunk_attempt)
+                            self.logger.info(f"청크 재시도 대기: {chunk_delay}초")
+                            time.sleep(chunk_delay)
+                        else:
+                            self.logger.error(f"❌ Episode {episode.episode_id} 청크 {i+1} 최종 실패")
+                            raise
+                
+                if not chunk_success:
+                    raise EmbeddingError(f"Episode {episode.episode_id} 청크 {i+1} 처리 실패")
+            
+            # 청크 임베딩들을 평균내어 최종 임베딩 생성
+            if chunk_embeddings:
+                import numpy as np
+                episode.embedding = np.mean(chunk_embeddings, axis=0).tolist()
+                self.logger.debug(f"✅ Episode {episode.episode_id}: {len(chunks)}개 청크 평균 임베딩 완료")
+            else:
+                raise EmbeddingError(f"No valid chunk embeddings for episode {episode.episode_id}")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Episode {episode.episode_id} 청킹 임베딩 실패: {e}")
+            raise
+    
+    def _split_content_into_chunks(self, content: str, chunk_size: int, overlap: int) -> List[str]:
+        """Split content into overlapping chunks."""
+        chunks = []
+        start = 0
+        
+        while start < len(content):
+            end = start + chunk_size
+            
+            # 마지막 청크인 경우
+            if end >= len(content):
+                chunks.append(content[start:])
+                break
+            
+            # 단어 경계에서 자르기 (문장 단위로 자르는 것이 더 좋지만 일단 단어 단위)
+            chunk = content[start:end]
+            
+            # 단어 중간에서 자르지 않도록 조정
+            last_space = chunk.rfind(' ')
+            if last_space > chunk_size * 0.8:  # 80% 이상 지점에서 공백을 찾은 경우
+                chunk = chunk[:last_space]
+                end = start + last_space
+            
+            chunks.append(chunk)
+            start = end - overlap  # 중복 구간 설정
+        
+        return chunks
     
     def get_processing_stats(self) -> Dict[str, Any]:
         """Get current processing statistics."""

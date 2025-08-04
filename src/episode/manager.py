@@ -29,7 +29,7 @@ class EpisodeRAGConfig:
     """Configuration for Episode RAG Manager."""
     # Processing config
     processing_batch_size: int = 100
-    embedding_model: str = "text-embedding-ada-002"
+    embedding_model: Optional[str] = None  # Use embedding manager's default model
     enable_content_cleaning: bool = True
     
     # Vector store config
@@ -177,6 +177,11 @@ class EpisodeRAGManager(LoggerMixin):
         """
         try:
             self.logger.info(f"Starting processing for novel {novel_id}")
+            
+            # Ensure collection is initialized
+            if not hasattr(self.vector_store, 'collection') or self.vector_store.collection is None:
+                self.logger.info("Collection not initialized, setting up collection...")
+                await self.setup_collection(drop_existing=False)
             
             # Extract episodes from database
             episodes = self.processor.extract_episodes(novel_ids=[novel_id])

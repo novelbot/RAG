@@ -63,6 +63,127 @@ def create_progress_bar(description: str = "Processing") -> Progress:
     )
 
 
+def create_detailed_progress_bar() -> Progress:
+    """
+    Create a detailed progress bar with more information.
+    
+    Returns:
+        Enhanced progress bar instance with detailed columns
+    """
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.fields[stage]}"),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(complete_style="green", finished_style="bright_green"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("•"),
+        TextColumn("[cyan]{task.fields[current_item]}"),
+        TextColumn("•"),
+        TextColumn("[yellow]{task.fields[rate]}"),
+        TimeRemainingColumn(),
+        console=console
+    )
+
+
+class ProgressCallback:
+    """
+    Callback class for tracking processing progress with real-time updates.
+    """
+    
+    def __init__(self, progress: Progress, task_id, total_items: int = 0):
+        self.progress = progress
+        self.task_id = task_id
+        self.total_items = total_items
+        self.processed_items = 0
+        self.failed_items = 0
+        self.start_time = None
+        
+    def start(self, description: str = "Starting..."):
+        """Start the progress tracking."""
+        import time
+        self.start_time = time.time()
+        self.progress.update(
+            self.task_id, 
+            description=description,
+            stage="🚀 Starting",
+            current_item="",
+            rate="0/sec"
+        )
+    
+    def update_item(self, item_name: str, current: int = None):
+        """Update progress for current item."""
+        if current is not None:
+            self.processed_items = current
+        else:
+            self.processed_items += 1
+            
+        # Calculate processing rate
+        import time
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            rate = self.processed_items / elapsed if elapsed > 0 else 0
+            rate_text = f"{rate:.1f}/sec"
+        else:
+            rate_text = "calculating..."
+        
+        percentage = (self.processed_items / self.total_items * 100) if self.total_items > 0 else 0
+        
+        self.progress.update(
+            self.task_id,
+            completed=self.processed_items,
+            total=self.total_items,
+            description=f"Processing items ({self.processed_items}/{self.total_items})",
+            stage="⚡ Processing",
+            current_item=item_name[:30] + "..." if len(item_name) > 30 else item_name,
+            rate=rate_text
+        )
+    
+    def mark_failed(self, item_name: str):
+        """Mark an item as failed."""
+        self.failed_items += 1
+        self.processed_items += 1
+        
+        import time
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            rate = self.processed_items / elapsed if elapsed > 0 else 0
+            rate_text = f"{rate:.1f}/sec"
+        else:
+            rate_text = "calculating..."
+        
+        self.progress.update(
+            self.task_id,
+            completed=self.processed_items,
+            total=self.total_items,
+            description=f"Processing items ({self.processed_items}/{self.total_items}, {self.failed_items} failed)",
+            stage="❌ Failed",
+            current_item=f"Failed: {item_name[:25]}...",
+            rate=rate_text
+        )
+    
+    def complete(self, success_message: str = "Completed"):
+        """Mark processing as complete."""
+        import time
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            rate = self.processed_items / elapsed if elapsed > 0 else 0
+            rate_text = f"{rate:.1f}/sec (avg)"
+        else:
+            rate_text = "completed"
+        
+        success_rate = ((self.processed_items - self.failed_items) / self.processed_items * 100) if self.processed_items > 0 else 0
+        
+        self.progress.update(
+            self.task_id,
+            completed=self.total_items,
+            total=self.total_items,
+            description=f"{success_message} - {success_rate:.1f}% success rate",
+            stage="✅ Done",
+            current_item="",
+            rate=rate_text
+        )
+
+
 def display_table(data: List[dict], title: Optional[str] = None, columns: Optional[List[str]] = None) -> None:
     """
     Display data in a table format.
@@ -187,8 +308,8 @@ def safe_filename(filename: str) -> str:
     return safe or 'unnamed_file'
 
 
-class ProgressCallback:
-    """Callback class for tracking progress of long-running operations."""
+class SimpleProgressCallback:
+    """Simple callback class for tracking progress of long-running operations."""
     
     def __init__(self, total: int, description: str = "Processing"):
         self.total = total

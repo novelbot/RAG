@@ -199,6 +199,34 @@ class MilvusCollection(LoggerMixin):
             self.logger.error(f"Failed to check load status: {e}")
             return False
     
+    def get_vector_field_name(self) -> str:
+        """Get the name of the vector field in the collection."""
+        try:
+            if not self._collection:
+                raise CollectionError("Collection not initialized")
+            
+            # Get schema information
+            schema = self._collection.schema
+            
+            # Look for vector fields (FLOAT_VECTOR type)
+            for field in schema.fields:
+                if 'VECTOR' in str(field.dtype):
+                    return field.name
+            
+            # Fallback to common vector field names
+            common_vector_names = ['content_embedding', 'embedding', 'vector', 'embeddings']
+            for field in schema.fields:
+                if field.name in common_vector_names:
+                    return field.name
+            
+            # Default fallback
+            raise CollectionError("No vector field found in collection schema")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get vector field name: {e}")
+            # Return default as last resort
+            return "vector"
+    
     def insert(self, 
                data: List[Dict[str, Any]], 
                partition_name: Optional[str] = None) -> InsertResult:
@@ -350,10 +378,13 @@ class MilvusCollection(LoggerMixin):
             if output_fields is None:
                 output_fields = ["id", "content", "metadata", "created_at"]
             
+            # Get the correct vector field name
+            vector_field_name = self.get_vector_field_name()
+            
             # Perform search
             search_response = self._collection.search(
                 data=query_vectors,
-                anns_field="vector",
+                anns_field=vector_field_name,
                 param=search_params,
                 limit=limit,
                 expr=expr,
@@ -644,8 +675,11 @@ class MilvusCollection(LoggerMixin):
         if not data:
             raise VectorError("Empty data provided")
         
+        # Get the correct vector field name
+        vector_field_name = self.get_vector_field_name()
+        
         # Check if all required fields are present
-        required_fields = {"id", "vector", "content"}
+        required_fields = {"id", vector_field_name, "content"}
         sample_entity = data[0]
         
         for field in required_fields:
@@ -653,7 +687,7 @@ class MilvusCollection(LoggerMixin):
                 raise VectorError(f"Missing required field: {field}")
         
         # Validate vector dimensions
-        vector_dim = len(sample_entity["vector"])
+        vector_dim = len(sample_entity[vector_field_name])
         if vector_dim != self.schema.vector_dim:
             raise VectorError(f"Vector dimension mismatch: expected {self.schema.vector_dim}, got {vector_dim}")
         
@@ -661,9 +695,9 @@ class MilvusCollection(LoggerMixin):
         for i, entity in enumerate(data):
             if "id" not in entity:
                 raise VectorError(f"Missing ID in entity {i}")
-            if "vector" not in entity:
+            if vector_field_name not in entity:
                 raise VectorError(f"Missing vector in entity {i}")
-            if len(entity["vector"]) != vector_dim:
+            if len(entity[vector_field_name]) != vector_dim:
                 raise VectorError(f"Inconsistent vector dimension in entity {i}")
     
     def _convert_to_column_format(self, data: List[Dict[str, Any]]) -> List[List[Any]]:
