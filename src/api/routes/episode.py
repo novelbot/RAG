@@ -885,8 +885,13 @@ async def perform_episode_vector_search(
         milvus_client = MilvusClient(config.milvus)
         milvus_client.connect()
         
+        # Generate dynamic collection name based on embedding model
+        from ...episode.vector_store import get_model_name_for_collection
+        model_name = get_model_name_for_collection(embedding_manager)
+        dynamic_collection_name = f"episode_embeddings_{model_name}"
+        
         episode_config = EpisodeRAGConfig(
-            collection_name="episode_embeddings",
+            collection_name=dynamic_collection_name,
             default_search_limit=max_episodes
         )
         
@@ -1392,7 +1397,6 @@ class ProcessAllRequest(BaseAPISchema):
     """Process all novels request schema."""
     force_reprocess: bool = Field(False, description="Force reprocessing of existing episodes")
     filter_novel_ids: Optional[List[int]] = Field(None, description="Process only specific novel IDs")
-    batch_size: int = Field(5, ge=1, le=20, description="Number of novels to process concurrently")
 
 
 class ProcessAllResponse(BaseAPISchema):
@@ -1438,17 +1442,22 @@ async def process_all_novels(
             if request.filter_novel_ids:
                 # Process only specified novels
                 novel_ids = request.filter_novel_ids
+                logger.info(f"Using filtered novel IDs: {novel_ids}")
             else:
-                # Get all novel IDs from database (CLI-style with proper context manager)
+                # Get all novel IDs from database (exactly like CLI episode-mode)
                 from sqlalchemy import text
                 with db_manager.get_connection() as conn:
                     result = conn.execute(text("SELECT novel_id FROM novels"))
                     novel_ids = [row[0] for row in result]
+                    logger.info(f"Retrieved {len(novel_ids)} novels from database: {novel_ids[:10]}...")
             
         except Exception as e:
-            logger.warning(f"Failed to query novels from database: {e}")
+            logger.error(f"Failed to query novels from database: {e}")
+            import traceback
+            logger.error(f"Database query traceback: {traceback.format_exc()}")
             # Fall back to a reasonable range
             novel_ids = list(range(1, 70))  # Process novels 1-69
+            logger.warning(f"Using fallback novel IDs: {len(novel_ids)} novels")
         
         # Start background processing
         background_tasks.add_task(
@@ -1609,78 +1618,81 @@ async def process_all_novels_background(
     user_id: str
 ) -> None:
     """
-    Background task to process all novels with improved logic.
+    Background task to process all novels using Episode-specific processing with improved chunking.
+    This mirrors the CLI command: uv run rag-cli data ingest --episode-mode --database --force
     
     Args:
         novel_ids: List of novel IDs to process
         force_reprocess: Whether to reprocess existing episodes
-        batch_size: Number of novels to process concurrently
         processing_id: Unique ID for this processing batch
         user_id: User who initiated the processing
     """
     start_time = time.time()
     
-    print(f"🚀 Starting bulk novel processing [{processing_id}]")
+    print(f"🚀 Starting Episode-specific processing with improved chunking [{processing_id}]")
     print(f"   Novels to process: {len(novel_ids)}")
-    print(f"   Batch size: {batch_size}")
     print(f"   Force reprocess: {force_reprocess}")
     print(f"   User: {user_id}")
     
     try:
+        # Import episode-specific components (same as CLI)
+        from src.episode.manager import EpisodeRAGManager
+        from src.core.config import get_config
+        
         config = get_config()
         
-        # Initialize required managers
-        from ...database.base import DatabaseManager
+        # Initialize dependencies exactly like CLI episode-mode
+        from src.database.base import DatabaseManager
+        from src.embedding.manager import EmbeddingManager
+        from src.milvus.client import MilvusClient
+        from src.episode.manager import EpisodeRAGConfig
+        
+        # Initialize dependencies  
         db_manager = DatabaseManager(config.database)
         
-        # Get global embedding manager
-        import sys
-        from ...core import app
-        embedding_manager = getattr(sys.modules.get('src.core.app'), 'embedding_manager', None)
-        if not embedding_manager:
-            from ...embedding.factory import get_embedding_manager
-            embedding_manager = get_embedding_manager([config.embedding])
-        
+        # Create embedding provider configs list (same as CLI)
+        if config.embedding_providers:
+            provider_configs = list(config.embedding_providers.values())
+        else:
+            # Fallback to single embedding config
+            provider_configs = [config.embedding]
+            
+        embedding_manager = EmbeddingManager(provider_configs)
         milvus_client = MilvusClient(config.milvus)
-        milvus_client.connect()
-        
-        # Create Episode RAG Manager
-        from ...episode import EpisodeRAGConfig, create_episode_rag_manager
         episode_config = EpisodeRAGConfig(
-            collection_name="episode_embeddings",
-            processing_batch_size=5,  # Match CLI settings for stability
+            processing_batch_size=5,  # Further reduce batch size for stability  
             vector_dimension=get_config().rag.vector_dimension  # Use configured dimension
         )
         
-        episode_rag_manager = await create_episode_rag_manager(
+        episode_manager = EpisodeRAGManager(
             database_manager=db_manager,
             embedding_manager=embedding_manager,
             milvus_client=milvus_client,
-            config=episode_config,
-            setup_collection=False  # CLI-style: setup separately
+            config=episode_config
         )
         
-        # Setup collection first (CLI-style) - drop existing for clean migration
-        await episode_rag_manager.setup_collection(drop_existing=True)
+        # Connect to Milvus first
+        milvus_client.connect()
         
-        # Process novels sequentially (CLI-style for stability)
+        # Setup collection first (force drop if reprocessing, same as CLI)
+        await episode_manager.setup_collection(drop_existing=force_reprocess)
+        
+        print(f"Found {len(novel_ids)} novels to process")
+        
         total_processed = 0
         total_failed = 0
         
-        print(f"📊 Processing {len(novel_ids)} novels sequentially for stability")
-        
+        # Process novels sequentially (exactly like CLI episode-mode)
         for i, novel_id in enumerate(novel_ids, 1):
             try:
                 print(f"🔄 Processing Novel {novel_id} ({i}/{len(novel_ids)})")
                 
-                # Add delay between novels to prevent Ollama overload (CLI-style)
+                # Add delay between novels to prevent Ollama overload (same as CLI)
                 if i > 1:
-                    await asyncio.sleep(2)  # 2 second delay like CLI
+                    import asyncio
+                    await asyncio.sleep(2)  # 2 second delay
                 
-                # Process single novel with retry logic
-                result = await process_single_novel_with_retry(
-                    episode_rag_manager, novel_id, force_reprocess
-                )
+                result = await episode_manager.process_novel(novel_id, force_reprocess=force_reprocess)
                 
                 episode_count = result.get('episodes_processed', 0)
                 total_processed += episode_count
@@ -1690,60 +1702,24 @@ async def process_all_novels_background(
             except Exception as e:
                 total_failed += 1
                 print(f"❌ Failed to process Novel {novel_id}: {e}")
-                # Continue with next novel even if one fails
+                continue
         
         processing_time = time.time() - start_time
         
-        print(f"🎉 Sequential processing completed [{processing_id}]")
-        print(f"   Total time: {processing_time:.1f}s")
-        print(f"   Episodes processed: {total_processed}")
-        print(f"   Novels failed: {total_failed}")
-        print(f"   Success rate: {((len(novel_ids) - total_failed) / len(novel_ids) * 100):.1f}%")
-        print(f"   ✅ Using improved schema and content processing")
+        print(f"✅ Episode processing completed [{processing_id}]")
+        print(f"   Total episodes processed: {total_processed}")
+        print(f"   Failed novels: {total_failed}")
+        print(f"   Processing time: {processing_time:.1f}s")
         
+    except ImportError as e:
+        processing_time = time.time() - start_time
+        print(f"❌ Episode processing not available [{processing_id}]: {e}")
+        print(f"   Processing time: {processing_time:.1f}s")
     except Exception as e:
         processing_time = time.time() - start_time
-        print(f"💥 Sequential processing failed [{processing_id}]: {e}")
+        print(f"❌ Episode processing failed [{processing_id}]: {e}")
         print(f"   Processing time: {processing_time:.1f}s")
-        print(f"   ⚠️ Collection may have been reset - use CLI method for recovery")
 
-
-async def process_single_novel_with_retry(
-    episode_rag_manager,
-    novel_id: int,
-    force_reprocess: bool,
-    max_retries: int = 2
-) -> Dict[str, Any]:
-    """
-    Process a single novel with retry logic.
-    
-    Args:
-        episode_rag_manager: Episode RAG manager instance
-        novel_id: Novel ID to process
-        force_reprocess: Whether to force reprocessing
-        max_retries: Maximum number of retry attempts
-        
-    Returns:
-        Processing result dictionary
-    """
-    for attempt in range(max_retries + 1):
-        try:
-            print(f"🔄 Processing Novel {novel_id} (attempt {attempt + 1})")
-            
-            result = await episode_rag_manager.process_novel(novel_id, force_reprocess=force_reprocess)
-            
-            print(f"✅ Novel {novel_id} completed: {result.get('processed_count', 0)} episodes")
-            return result
-            
-        except Exception as e:
-            print(f"❌ Novel {novel_id} attempt {attempt + 1} failed: {e}")
-            
-            if attempt < max_retries:
-                # Wait before retry
-                await asyncio.sleep(2.0 * (attempt + 1))
-            else:
-                # Final attempt failed
-                raise e
 
 
 # Monitoring and statistics endpoints

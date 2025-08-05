@@ -112,7 +112,12 @@ class EpisodeRAGManager(LoggerMixin):
             vector_dimension=self.config.vector_dimension,
             index_params=self.config.index_params
         )
-        self.vector_store = EpisodeVectorStore(self.milvus_client, vector_store_config)
+        # Pass embedding_manager for dynamic collection naming
+        self.vector_store = EpisodeVectorStore(
+            self.milvus_client, 
+            vector_store_config,
+            self.embedding_manager
+        )
         
         # Search engine
         self.search_engine = EpisodeSearchEngine(

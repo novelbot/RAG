@@ -19,6 +19,59 @@ from src.milvus.index import IndexType, MetricType
 from .models import EpisodeData, EpisodeProcessingStats
 
 
+def get_model_name_for_collection(embedding_manager) -> str:
+    """
+    Extract embedding model name for collection naming.
+    
+    Args:
+        embedding_manager: EmbeddingManager instance
+        
+    Returns:
+        Sanitized model name for collection naming
+    """
+    try:
+        if not embedding_manager or not embedding_manager.providers:
+            return "default"
+        
+        # Get primary provider
+        primary_provider = list(embedding_manager.providers.values())[0]
+        
+        # Try to get model name from provider
+        model_name = None
+        
+        # Method 1: Direct model attribute
+        if hasattr(primary_provider, 'model'):
+            model_name = primary_provider.model
+        
+        # Method 2: From provider config
+        elif hasattr(primary_provider, 'config') and hasattr(primary_provider.config, 'model'):
+            model_name = primary_provider.config.model
+        
+        # Method 3: From embedding manager's provider_configs
+        elif hasattr(embedding_manager, 'provider_configs'):
+            configs = embedding_manager.provider_configs
+            if not isinstance(configs, list):
+                configs = [configs]
+            for config in configs:
+                if hasattr(config, 'model'):
+                    model_name = config.model
+                    break
+        
+        if not model_name:
+            return "default"
+        
+        # Sanitize model name for collection naming
+        # Remove version tags (e.g., :f32, :q8_0), special characters
+        sanitized = model_name.split(':')[0] if ':' in model_name else model_name
+        sanitized = sanitized.replace('/', '_').replace('-', '_').replace('.', '_')
+        sanitized = ''.join(c for c in sanitized if c.isalnum() or c == '_')
+        
+        return sanitized.lower() if sanitized else "default"
+        
+    except Exception:
+        return "default"
+
+
 @dataclass
 class EpisodeVectorStoreConfig:
     """Configuration for episode vector store."""
@@ -52,7 +105,8 @@ class EpisodeVectorStore(LoggerMixin):
     def __init__(
         self,
         milvus_client: MilvusClient,
-        config: Optional[EpisodeVectorStoreConfig] = None
+        config: Optional[EpisodeVectorStoreConfig] = None,
+        embedding_manager=None
     ):
         """
         Initialize Episode Vector Store.
@@ -60,9 +114,16 @@ class EpisodeVectorStore(LoggerMixin):
         Args:
             milvus_client: Milvus client instance
             config: Vector store configuration
+            embedding_manager: EmbeddingManager instance for dynamic collection naming
         """
         self.milvus_client = milvus_client
         self.config = config or EpisodeVectorStoreConfig()
+        
+        # Set dynamic collection name based on embedding model
+        if embedding_manager:
+            model_name = get_model_name_for_collection(embedding_manager)
+            self.config.collection_name = f"episode_embeddings_{model_name}"
+        
         from pymilvus import Collection
         self.collection: Optional[Collection] = None
         
