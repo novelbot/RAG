@@ -353,12 +353,17 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
                 # 토큰 수 대략 추정 (한국어: 문자당 약 1.5토큰, 영어: 4문자당 1토큰)
                 estimated_tokens = int(content_length * 1.5)  # 한국어 기준 보수적 추정
                 
-                if estimated_tokens <= 2000:
+                # 모델의 max_tokens에 따라 동적으로 청킹 임계값 결정
+                max_tokens = self._get_model_max_tokens()
+                chunking_threshold = int(max_tokens * 0.85)  # 85% 안전 마진
+                
+                if estimated_tokens <= chunking_threshold:
                     # 단일 임베딩
+                    self.logger.debug(f"📄 Episode {episode.episode_id}: {estimated_tokens}토큰 (임계값: {chunking_threshold}) → 단일 임베딩")
                     self._generate_single_embedding(episode, content)
                 else:
                     # 청킹 필요
-                    self.logger.debug(f"📚 Episode {episode.episode_id}: {estimated_tokens}토큰 추정, 청킹 처리")
+                    self.logger.debug(f"📚 Episode {episode.episode_id}: {estimated_tokens}토큰 (임계값: {chunking_threshold}) → 청킹 처리")
                     self._generate_chunked_embedding(episode, content)
                 
                 # Success - break out of retry loop
@@ -405,12 +410,11 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
         try:
             from .models import EpisodeChunk
             
-            # 청크 크기 설정 (보수적으로 1500자 = 약 2250토큰)
-            chunk_size = 1500
-            overlap = 200  # 청크 간 중복
+            # 모델의 max_tokens에 따라 동적으로 청크 크기 계산
+            chunk_size, overlap = self._get_optimal_chunk_settings()
             
             chunks_text = self._split_content_into_chunks(content, chunk_size, overlap)
-            self.logger.debug(f"📚 Episode {episode.episode_id}: {len(chunks_text)}개 청크로 분할")
+            self.logger.debug(f"📚 Episode {episode.episode_id}: {len(chunks_text)}개 청크로 분할 (크기: {chunk_size}자, 겹침: {overlap}자)")
             
             # 각 청크를 개별 EpisodeChunk 객체로 생성
             episode_chunks = []
@@ -547,6 +551,69 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
                 unique_chunks.append(chunk)
         
         return unique_chunks
+    
+    def _get_model_max_tokens(self) -> int:
+        """Get max_tokens for the current embedding model."""
+        try:
+            # Get current model from embedding manager
+            if not self.embedding_manager or not self.embedding_manager.providers:
+                self.logger.warning("No embedding providers available, using default max_tokens")
+                return 2048  # Safe default
+            
+            # Get primary provider
+            primary_provider = list(self.embedding_manager.providers.values())[0]
+            
+            # Check if it's Ollama provider with MODEL_SPECS
+            if hasattr(primary_provider, 'MODEL_SPECS'):
+                model_name = getattr(primary_provider, 'model', None)
+                if model_name and model_name in primary_provider.MODEL_SPECS:
+                    max_tokens = primary_provider.MODEL_SPECS[model_name].get('max_tokens', 2048)
+                    self.logger.debug(f"📏 Model {model_name} max_tokens: {max_tokens}")
+                    return max_tokens
+            
+            # Check if provider has max_tokens attribute
+            if hasattr(primary_provider, 'max_tokens'):
+                return primary_provider.max_tokens
+            
+            # Check embedding manager config
+            if hasattr(self.embedding_manager, 'config') and hasattr(self.embedding_manager.config, 'max_tokens'):
+                return self.embedding_manager.config.max_tokens
+            
+            # Safe default
+            self.logger.warning("Could not determine model max_tokens, using default 2048")
+            return 2048
+            
+        except Exception as e:
+            self.logger.error(f"Error getting model max_tokens: {e}")
+            return 2048  # Safe fallback
+    
+    def _get_optimal_chunk_settings(self) -> tuple[int, int]:
+        """Calculate optimal chunk size and overlap based on model's max_tokens."""
+        try:
+            # Get model's max_tokens
+            max_tokens = self._get_model_max_tokens()
+            
+            # Calculate safe token count (85% of max to be conservative)
+            safe_tokens = int(max_tokens * 0.85)
+            
+            # Convert to character count (Korean text: ~1.5 tokens per character)
+            safe_chars = int(safe_tokens / 1.5)
+            
+            # Use smaller of default (1500) or calculated safe size
+            chunk_size = min(1500, safe_chars)
+            
+            # Calculate proportional overlap (maintain ~13.3% ratio from 200/1500)
+            overlap_ratio = 200 / 1500  # 0.133
+            overlap = max(20, min(200, int(chunk_size * overlap_ratio)))
+            
+            self.logger.debug(f"📏 Dynamic chunking: max_tokens={max_tokens}, chunk_size={chunk_size}, overlap={overlap}")
+            
+            return chunk_size, overlap
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating optimal chunk settings: {e}")
+            # Return safe defaults
+            return 300, 50
     
     def get_processing_stats(self) -> Dict[str, Any]:
         """Get current processing statistics."""
