@@ -91,12 +91,19 @@ class EpisodeVectorStore(LoggerMixin):
             
             # Define schema fields
             fields = [
-                # Primary key
+                # Primary key - now uses a unique ID for each entry (episode or chunk)
+                create_field(
+                    name="entry_id",
+                    dtype=DataType.INT64,
+                    is_primary=True,
+                    description="Unique entry ID (auto-generated)"
+                ),
+                
+                # Original RDB episode ID (for traceability)
                 create_field(
                     name="episode_id",
                     dtype=DataType.INT64,
-                    is_primary=True,
-                    description="Episode ID from RDB"
+                    description="Original Episode ID from RDB"
                 ),
                 
                 # Vector field
@@ -138,6 +145,25 @@ class EpisodeVectorStore(LoggerMixin):
                     name="content_length",
                     dtype=DataType.INT32,
                     description="Content character count"
+                ),
+                
+                # Chunk tracking fields
+                create_field(
+                    name="is_chunk",
+                    dtype=DataType.BOOL,
+                    description="Whether this entry is a chunk (True) or full episode (False)"
+                ),
+                
+                create_field(
+                    name="chunk_index",
+                    dtype=DataType.INT32,
+                    description="Chunk index (0-based, -1 for non-chunks)"
+                ),
+                
+                create_field(
+                    name="total_chunks",
+                    dtype=DataType.INT32,
+                    description="Total number of chunks for this episode (1 for non-chunks)"
                 ),
                 
                 # Date as timestamp for filtering
@@ -256,9 +282,9 @@ class EpisodeVectorStore(LoggerMixin):
             if regular_episodes:
                 data = self._prepare_insertion_data(regular_episodes)
                 data_list = [data[field] for field in [
-                    "episode_id", "content_embedding", "novel_id", "episode_number", 
-                    "episode_title", "content", "content_length", "publication_timestamp", 
-                    "publication_date", "created_at", "updated_at"
+                    "entry_id", "episode_id", "content_embedding", "novel_id", "episode_number", 
+                    "episode_title", "content", "content_length", "is_chunk", "chunk_index", 
+                    "total_chunks", "publication_timestamp", "publication_date", "created_at", "updated_at"
                 ]]
                 insert_result = self.collection.insert(data_list)
                 total_inserted += len(regular_episodes)
@@ -268,9 +294,9 @@ class EpisodeVectorStore(LoggerMixin):
             if all_chunks:
                 chunk_data = self._prepare_chunk_insertion_data(all_chunks)
                 chunk_data_list = [chunk_data[field] for field in [
-                    "episode_id", "content_embedding", "novel_id", "episode_number", 
-                    "episode_title", "content", "content_length", "publication_timestamp", 
-                    "publication_date", "created_at", "updated_at"
+                    "entry_id", "episode_id", "content_embedding", "novel_id", "episode_number", 
+                    "episode_title", "content", "content_length", "is_chunk", "chunk_index", 
+                    "total_chunks", "publication_timestamp", "publication_date", "created_at", "updated_at"
                 ]]
                 chunk_insert_result = self.collection.insert(chunk_data_list)
                 total_inserted += len(all_chunks)
@@ -427,30 +453,44 @@ class EpisodeVectorStore(LoggerMixin):
         current_timestamp = int(datetime.now(timezone.utc).timestamp())
         
         data = {
-            "episode_id": [],
+            "entry_id": [],      # New primary key (auto-generated)
+            "episode_id": [],    # Original RDB episode ID for traceability
             "content_embedding": [],
             "novel_id": [],
             "episode_number": [],
             "episode_title": [],
             "content": [],
             "content_length": [],
+            "is_chunk": [],      # False for regular episodes
+            "chunk_index": [],   # -1 for regular episodes
+            "total_chunks": [],  # 1 for regular episodes
             "publication_timestamp": [],
             "publication_date": [],
             "created_at": [],
             "updated_at": []
         }
         
-        for episode in episodes:
+        for i, episode in enumerate(episodes):
             if not episode.embedding:
                 raise StorageError(f"Episode {episode.episode_id} has no embedding")
             
-            data["episode_id"].append(episode.episode_id)
+            # Generate unique entry_id (primary key)
+            # Use negative values for regular episodes to avoid conflicts with chunks
+            entry_id = -(episode.episode_id * 1000 + 999)  # Ensures uniqueness and negative
+            
+            data["entry_id"].append(entry_id)
+            data["episode_id"].append(episode.episode_id)  # Preserve original RDB ID
             data["content_embedding"].append(episode.embedding)
             data["novel_id"].append(episode.novel_id)
             data["episode_number"].append(episode.episode_number)
             data["episode_title"].append(episode.episode_title[:500])  # Truncate if too long
             data["content"].append(episode.content[:20000])  # Truncate if too long
             data["content_length"].append(episode.content_length)
+            
+            # Chunk tracking fields for regular episodes
+            data["is_chunk"].append(False)  # Not a chunk
+            data["chunk_index"].append(-1)   # No chunk index
+            data["total_chunks"].append(1)   # Single piece
             
             # Handle publication date
             if episode.publication_date:
@@ -474,13 +514,17 @@ class EpisodeVectorStore(LoggerMixin):
         current_timestamp = int(datetime.now(timezone.utc).timestamp())
         
         data = {
-            "episode_id": [],
+            "entry_id": [],      # New primary key (auto-generated)
+            "episode_id": [],    # Original RDB episode ID for traceability
             "content_embedding": [],
             "novel_id": [],
             "episode_number": [],
             "episode_title": [],
             "content": [],
             "content_length": [],
+            "is_chunk": [],      # True for chunks
+            "chunk_index": [],   # Chunk index (0-based)
+            "total_chunks": [],  # Total chunks for this episode
             "publication_timestamp": [],
             "publication_date": [],
             "created_at": [],
@@ -491,10 +535,12 @@ class EpisodeVectorStore(LoggerMixin):
             if not chunk.embedding:
                 raise StorageError(f"Chunk {chunk.chunk_id} has no embedding")
             
-            # Use chunk_id as unique identifier in episode_id field
-            # This allows us to distinguish chunks from regular episodes
-            chunk_id_numeric = hash(chunk.chunk_id) % (2**31)  # Convert to positive int
-            data["episode_id"].append(chunk_id_numeric)
+            # Generate unique entry_id for this chunk
+            # Use positive values: episode_id * 1000 + chunk_index
+            entry_id = chunk.episode_id * 1000 + chunk.chunk_index
+            
+            data["entry_id"].append(entry_id)
+            data["episode_id"].append(chunk.episode_id)  # Preserve original RDB episode ID
             data["content_embedding"].append(chunk.embedding)
             data["novel_id"].append(chunk.novel_id)
             data["episode_number"].append(chunk.episode_number)
@@ -504,6 +550,11 @@ class EpisodeVectorStore(LoggerMixin):
             data["episode_title"].append(chunk_title[:500])  # Truncate if too long
             data["content"].append(chunk.content[:20000])  # Truncate if too long
             data["content_length"].append(chunk.content_length)
+            
+            # Chunk tracking fields
+            data["is_chunk"].append(True)  # This is a chunk
+            data["chunk_index"].append(chunk.chunk_index)  # 0-based chunk index
+            data["total_chunks"].append(chunk.total_chunks)  # Total chunks for episode
             
             # Handle publication date
             if chunk.publication_date:

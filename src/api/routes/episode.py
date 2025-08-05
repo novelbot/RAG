@@ -1662,8 +1662,8 @@ async def process_all_novels_background(
             setup_collection=False  # CLI-style: setup separately
         )
         
-        # Setup collection first (CLI-style)
-        await episode_rag_manager.setup_collection(drop_existing=True)
+        # Setup collection first (CLI-style) - don't drop existing by default
+        await episode_rag_manager.setup_collection(drop_existing=False)
         
         # Process novels in batches
         total_processed = 0

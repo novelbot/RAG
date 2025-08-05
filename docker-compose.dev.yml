@@ -1,0 +1,121 @@
+# =============================================================================
+# Docker Compose for Development
+# =============================================================================
+version: '3.8'
+
+services:
+  # RAG Server Application (Development)
+  rag-server-dev:
+    build:
+      context: .
+      target: development
+    container_name: rag-server-dev
+    ports:
+      - "8000:8000"
+      - "5678:5678"  # Debug port
+    volumes:
+      - .:/app
+      - /app/.venv  # Exclude virtual environment
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - DEBUG=true
+      - APP_ENV=development
+    depends_on:
+      - mysql-dev
+      - milvus-dev
+    networks:
+      - rag-dev-network
+    restart: unless-stopped
+
+  # MySQL Database (Development)
+  mysql-dev:
+    image: mysql:8.0
+    container_name: rag-mysql-dev
+    environment:
+      MYSQL_ROOT_PASSWORD: devpassword
+      MYSQL_DATABASE: novelbot_dev
+      MYSQL_USER: devuser
+      MYSQL_PASSWORD: devpass
+    ports:
+      - "3307:3306"  # Different port to avoid conflicts
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+    networks:
+      - rag-dev-network
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Milvus Vector Database (Development)
+  etcd-dev:
+    container_name: milvus-etcd-dev
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_dev_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    networks:
+      - rag-dev-network
+    restart: unless-stopped
+
+  minio-dev:
+    container_name: milvus-minio-dev
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9002:9001"  # Different port to avoid conflicts
+      - "9001:9000"
+    volumes:
+      - minio_dev_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    networks:
+      - rag-dev-network
+    restart: unless-stopped
+
+  milvus-dev:
+    container_name: milvus-standalone-dev
+    image: milvusdb/milvus:v2.4.0
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd-dev:2379
+      MINIO_ADDRESS: minio-dev:9000
+    volumes:
+      - milvus_dev_data:/var/lib/milvus
+    ports:
+      - "19531:19530"  # Different port to avoid conflicts
+      - "9092:9091"
+    depends_on:
+      - "etcd-dev"
+      - "minio-dev"
+    networks:
+      - rag-dev-network
+    restart: unless-stopped
+
+  # Ollama for local LLM (Development)
+  ollama-dev:
+    image: ollama/ollama:latest
+    container_name: rag-ollama-dev
+    ports:
+      - "11435:11434"  # Different port to avoid conflicts
+    volumes:
+      - ollama_dev_data:/root/.ollama
+    networks:
+      - rag-dev-network
+    restart: unless-stopped
+
+volumes:
+  mysql_dev_data:
+  milvus_dev_data:
+  etcd_dev_data:
+  minio_dev_data:
+  ollama_dev_data:
+
+networks:
+  rag-dev-network:
+    driver: bridge
