@@ -1455,7 +1455,6 @@ async def process_all_novels(
             process_all_novels_background,
             novel_ids=novel_ids,
             force_reprocess=request.force_reprocess,
-            batch_size=request.batch_size,
             processing_id=processing_id,
             user_id=current_user.id
         )
@@ -1602,11 +1601,10 @@ async def get_novel_processing_status(
         )
 
 
-# Background task for processing all novels
+# Background task for processing all novels (CLI-style sequential processing)
 async def process_all_novels_background(
     novel_ids: List[int],
     force_reprocess: bool,
-    batch_size: int,
     processing_id: str,
     user_id: str
 ) -> None:
@@ -1662,53 +1660,52 @@ async def process_all_novels_background(
             setup_collection=False  # CLI-style: setup separately
         )
         
-        # Setup collection first (CLI-style) - don't drop existing by default
-        await episode_rag_manager.setup_collection(drop_existing=False)
+        # Setup collection first (CLI-style) - drop existing for clean migration
+        await episode_rag_manager.setup_collection(drop_existing=True)
         
-        # Process novels in batches
+        # Process novels sequentially (CLI-style for stability)
         total_processed = 0
         total_failed = 0
         
-        for i in range(0, len(novel_ids), batch_size):
-            batch = novel_ids[i:i + batch_size]
-            
-            print(f"📊 Processing batch {i // batch_size + 1}: novels {batch}")
-            
-            # Process batch concurrently
-            batch_tasks = []
-            for novel_id in batch:
-                task = process_single_novel_with_retry(
+        print(f"📊 Processing {len(novel_ids)} novels sequentially for stability")
+        
+        for i, novel_id in enumerate(novel_ids, 1):
+            try:
+                print(f"🔄 Processing Novel {novel_id} ({i}/{len(novel_ids)})")
+                
+                # Add delay between novels to prevent Ollama overload (CLI-style)
+                if i > 1:
+                    await asyncio.sleep(2)  # 2 second delay like CLI
+                
+                # Process single novel with retry logic
+                result = await process_single_novel_with_retry(
                     episode_rag_manager, novel_id, force_reprocess
                 )
-                batch_tasks.append(task)
-            
-            # Wait for batch completion
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-            
-            # Count results
-            for result in batch_results:
-                if isinstance(result, Exception):
-                    total_failed += 1
-                    print(f"❌ Novel processing failed: {result}")
-                else:
-                    total_processed += 1
-                    print(f"✅ Novel processed successfully")
-            
-            # Small delay between batches to avoid overwhelming the system
-            await asyncio.sleep(1.0)
+                
+                episode_count = result.get('episodes_processed', 0)
+                total_processed += episode_count
+                
+                print(f"✅ Novel {novel_id}: {episode_count} episodes processed")
+                
+            except Exception as e:
+                total_failed += 1
+                print(f"❌ Failed to process Novel {novel_id}: {e}")
+                # Continue with next novel even if one fails
         
         processing_time = time.time() - start_time
         
-        print(f"🎉 Bulk processing completed [{processing_id}]")
+        print(f"🎉 Sequential processing completed [{processing_id}]")
         print(f"   Total time: {processing_time:.1f}s")
-        print(f"   Novels processed: {total_processed}")
+        print(f"   Episodes processed: {total_processed}")
         print(f"   Novels failed: {total_failed}")
-        print(f"   Success rate: {(total_processed / len(novel_ids) * 100):.1f}%")
+        print(f"   Success rate: {((len(novel_ids) - total_failed) / len(novel_ids) * 100):.1f}%")
+        print(f"   ✅ Using improved schema and content processing")
         
     except Exception as e:
         processing_time = time.time() - start_time
-        print(f"💥 Bulk processing failed [{processing_id}]: {e}")
+        print(f"💥 Sequential processing failed [{processing_id}]: {e}")
         print(f"   Processing time: {processing_time:.1f}s")
+        print(f"   ⚠️ Collection may have been reset - use CLI method for recovery")
 
 
 async def process_single_novel_with_retry(

@@ -269,19 +269,26 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
         return True
     
     def _clean_content(self, content: str) -> str:
-        """Clean and normalize episode content."""
+        """Clean and normalize episode content while preserving structure."""
         if not content:
             return content
         
-        # Basic cleaning
+        # Basic cleaning - only strip leading/trailing whitespace
         cleaned = content.strip()
         
-        # Remove excessive whitespace
+        # Preserve line breaks and paragraph structure
+        # Only normalize excessive consecutive spaces within lines
         import re
-        cleaned = re.sub(r'\s+', ' ', cleaned)
         
-        # Remove special characters that might interfere with embedding
+        # Replace multiple consecutive spaces (but not newlines) with single space
+        cleaned = re.sub(r'[ \t]+', ' ', cleaned)
+        
+        # Remove only control characters that could break processing
+        # Keep newlines (\n) and preserve text structure
         cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', cleaned)
+        
+        # Normalize excessive consecutive newlines to maximum 2
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
         
         return cleaned
     
@@ -466,31 +473,80 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             raise
     
     def _split_content_into_chunks(self, content: str, chunk_size: int, overlap: int) -> List[str]:
-        """Split content into overlapping chunks."""
+        """Split content into overlapping chunks with proper boundary detection."""
+        if len(content) <= chunk_size:
+            return [content]  # No need to chunk
+        
         chunks = []
         start = 0
         
         while start < len(content):
+            # Calculate end position
             end = start + chunk_size
             
-            # 마지막 청크인 경우
+            # If this would be the last chunk, take all remaining content
             if end >= len(content):
-                chunks.append(content[start:])
+                final_chunk = content[start:].strip()
+                if final_chunk:  # Only add if not empty
+                    chunks.append(final_chunk)
                 break
             
-            # 단어 경계에서 자르기 (문장 단위로 자르는 것이 더 좋지만 일단 단어 단위)
-            chunk = content[start:end]
+            # Find the best cutting point within the chunk
+            chunk_candidate = content[start:end]
             
-            # 단어 중간에서 자르지 않도록 조정
-            last_space = chunk.rfind(' ')
-            if last_space > chunk_size * 0.8:  # 80% 이상 지점에서 공백을 찾은 경우
-                chunk = chunk[:last_space]
-                end = start + last_space
+            # Priority 1: Try to cut at sentence boundary (. ! ? followed by space/newline)
+            sentence_endings = []
+            import re
+            for match in re.finditer(r'[.!?][\s\n]+', chunk_candidate):
+                pos = match.end()
+                if pos > chunk_size * 0.6:  # At least 60% of chunk size
+                    sentence_endings.append(pos)
             
-            chunks.append(chunk)
-            start = end - overlap  # 중복 구간 설정
+            if sentence_endings:
+                # Use the last sentence ending within the chunk
+                cut_pos = sentence_endings[-1]
+                actual_end = start + cut_pos
+                chunk = content[start:actual_end].strip()
+            else:
+                # Priority 2: Try to cut at paragraph boundary (newline)
+                newline_pos = chunk_candidate.rfind('\n')
+                if newline_pos > chunk_size * 0.6:
+                    actual_end = start + newline_pos
+                    chunk = content[start:actual_end].strip()
+                else:
+                    # Priority 3: Cut at word boundary (space)
+                    space_pos = chunk_candidate.rfind(' ')
+                    if space_pos > chunk_size * 0.7:  # 70% threshold for word boundary
+                        actual_end = start + space_pos
+                        chunk = content[start:actual_end].strip()
+                    else:
+                        # Last resort: cut at character boundary
+                        actual_end = end
+                        chunk = content[start:actual_end].strip()
+            
+            if chunk:  # Only add non-empty chunks
+                chunks.append(chunk)
+            
+            # Calculate next start position with proper overlap
+            if actual_end < len(content):
+                # Move back by overlap amount, but ensure we make progress
+                next_start = max(actual_end - overlap, start + chunk_size // 2)
+                start = next_start
+            else:
+                break
         
-        return chunks
+        # Remove empty chunks and ensure no duplicates
+        chunks = [chunk for chunk in chunks if chunk.strip()]
+        
+        # Remove exact duplicates while preserving order
+        seen = set()
+        unique_chunks = []
+        for chunk in chunks:
+            if chunk not in seen:
+                seen.add(chunk)
+                unique_chunks.append(chunk)
+        
+        return unique_chunks
     
     def get_processing_stats(self) -> Dict[str, Any]:
         """Get current processing statistics."""
