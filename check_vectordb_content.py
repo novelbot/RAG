@@ -19,7 +19,8 @@ def check_vectordb():
         print("✅ Connected to Milvus")
         
         # Get collection
-        collection = Collection("episode_embeddings")
+        #collection = Collection("episode_embeddings")
+        collection = Collection("episode_embeddings_jeffh_intfloat_multilingual_e5_large_instruct")
         collection.load()
         
         print(f"📊 Total entries: {collection.num_entities}")
