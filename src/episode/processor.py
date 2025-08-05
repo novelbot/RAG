@@ -563,21 +563,55 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             # Get primary provider
             primary_provider = list(self.embedding_manager.providers.values())[0]
             
-            # Check if it's Ollama provider with MODEL_SPECS
-            if hasattr(primary_provider, 'MODEL_SPECS'):
+            # For Ollama provider, check MODEL_CONFIGS
+            if hasattr(primary_provider, 'MODEL_CONFIGS'):
                 model_name = getattr(primary_provider, 'model', None)
-                if model_name and model_name in primary_provider.MODEL_SPECS:
-                    max_tokens = primary_provider.MODEL_SPECS[model_name].get('max_tokens', 2048)
+                if model_name and model_name in primary_provider.MODEL_CONFIGS:
+                    max_tokens = primary_provider.MODEL_CONFIGS[model_name].get('max_tokens', 2048)
                     self.logger.debug(f"📏 Model {model_name} max_tokens: {max_tokens}")
                     return max_tokens
             
-            # Check if provider has max_tokens attribute
-            if hasattr(primary_provider, 'max_tokens'):
-                return primary_provider.max_tokens
+            # Try to get model from provider config
+            if hasattr(primary_provider, 'config'):
+                config = primary_provider.config
+                model_name = getattr(config, 'model', None)
+                
+                # Check if provider has MODEL_CONFIGS and model is in it
+                if hasattr(primary_provider, 'MODEL_CONFIGS') and model_name:
+                    if model_name in primary_provider.MODEL_CONFIGS:
+                        max_tokens = primary_provider.MODEL_CONFIGS[model_name].get('max_tokens', 2048)
+                        self.logger.debug(f"📏 Model {model_name} max_tokens: {max_tokens}")
+                        return max_tokens
+                
+                # Check config for max_tokens
+                if hasattr(config, 'max_tokens') and config.max_tokens:
+                    return config.max_tokens
             
-            # Check embedding manager config
-            if hasattr(self.embedding_manager, 'config') and hasattr(self.embedding_manager.config, 'max_tokens'):
-                return self.embedding_manager.config.max_tokens
+            # Check embedding manager's provider_configs
+            if hasattr(self.embedding_manager, 'provider_configs'):
+                # Handle both single config and list of configs
+                configs = self.embedding_manager.provider_configs
+                if not isinstance(configs, list):
+                    configs = [configs]
+                
+                for config in configs:
+                    if hasattr(config, 'model'):
+                        model_name = config.model
+                        # Try to find max_tokens from Ollama MODEL_CONFIGS
+                        from src.embedding.providers.ollama import OllamaEmbeddingProvider
+                        
+                        # Try exact match first
+                        if model_name in OllamaEmbeddingProvider.MODEL_CONFIGS:
+                            max_tokens = OllamaEmbeddingProvider.MODEL_CONFIGS[model_name].get('max_tokens', 2048)
+                            self.logger.debug(f"📏 Model {model_name} max_tokens: {max_tokens} (from Ollama configs)")
+                            return max_tokens
+                        
+                        # Try without version tag (e.g., remove :f32, :q8_0, etc.)
+                        base_model_name = model_name.split(':')[0] if ':' in model_name else model_name
+                        if base_model_name in OllamaEmbeddingProvider.MODEL_CONFIGS:
+                            max_tokens = OllamaEmbeddingProvider.MODEL_CONFIGS[base_model_name].get('max_tokens', 2048)
+                            self.logger.debug(f"📏 Model {base_model_name} (from {model_name}) max_tokens: {max_tokens} (from Ollama configs)")
+                            return max_tokens
             
             # Safe default
             self.logger.warning("Could not determine model max_tokens, using default 2048")
