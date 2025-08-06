@@ -93,9 +93,5 @@ data/uploads/
 .dockerignore
 docker-compose.override.yml
 
-logs
-.env
-
-# Task files
-# tasks.json
-# tasks/ 
+.claude
+.cursor
