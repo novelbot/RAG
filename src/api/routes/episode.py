@@ -31,11 +31,8 @@ from ...database.base import DatabaseManager
 from ...services.query_logger import QueryLogger, QueryContext, QueryMetrics, QueryType, query_logger
 from ...embedding.manager import EmbeddingManager
 from ...milvus.client import MilvusClient
-from ...response_generation import (
-    SingleLLMGenerator, ResponseRequest, ResponseMode
-)
 from ...llm.manager import LLMManager
-from ...services.conversation_manager import conversation_manager
+from ...llm.base import LLMRequest, LLMMessage, LLMRole
 import uuid
 
 # Helper functions
@@ -498,9 +495,8 @@ async def ask_about_episodes(
             if len(context_text) > request.max_context_length:
                 context_text = context_text[:request.max_context_length]
             
-            # Create LLM manager and response generator
+            # Create LLM manager
             llm_manager = LLMManager(config)
-            response_generator = SingleLLMGenerator(llm_manager)
             
             # Prepare prompt
             prompt = f"""Based on the following episode content, please answer this question: {request.query}
@@ -511,16 +507,15 @@ Episode Context:
 Please provide a detailed and helpful answer based on the episode information provided."""
             
             # Generate response
-            llm_request = ResponseRequest(
-                prompt=prompt,
+            llm_request = LLMRequest(
+                messages=[LLMMessage(role=LLMRole.USER, content=prompt)],
                 model=config.llm.default_model,
                 temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                mode=ResponseMode.SINGLE
+                max_tokens=request.max_tokens
             )
             
-            response_result = await response_generator.generate_async(llm_request)
-            answer = response_result.response
+            response_result = await llm_manager.generate_async(llm_request)
+            answer = response_result.content
         else:
             answer = "I couldn't find any relevant episodes to answer your question. Please try with different episode IDs or a broader query."
         
@@ -769,60 +764,6 @@ async def process_novel_episodes_background(
 
 # Episode Chat Endpoints
 
-async def retrieve_episode_conversation_context(
-    conversation_id: Optional[str],
-    user_id: str,
-    max_context_turns: int
-) -> tuple[Optional[EpisodeChatConversation], List[ChatMessage]]:
-    """Retrieve episode conversation context with episode associations."""
-    if not conversation_id:
-        return None, []
-    
-    try:
-        # Get conversation from conversation manager
-        conversation_data = await conversation_manager.get_conversation(
-            conversation_id=conversation_id,
-            user_id=user_id
-        )
-        
-        if not conversation_data:
-            return None, []
-        
-        # Convert to ChatMessage format
-        messages = []
-        recent_messages = conversation_data.get('messages', [])[-max_context_turns*2:]
-        
-        for msg in recent_messages:
-            chat_msg = ChatMessage(
-                role=msg.get('role', 'user'),
-                content=msg.get('content', ''),
-                timestamp=msg.get('timestamp', datetime.now(timezone.utc)),
-                metadata=msg.get('metadata', {})
-            )
-            messages.append(chat_msg)
-        
-        # Create episode conversation with additional metadata
-        conversation = EpisodeChatConversation(
-            id=conversation_id,
-            messages=messages,
-            created_at=conversation_data.get('created_at', datetime.now(timezone.utc)),
-            updated_at=conversation_data.get('updated_at', datetime.now(timezone.utc)),
-            user_id=user_id,
-            total_messages=len(conversation_data.get('messages', [])),
-            # Episode-specific fields
-            episodes_discussed=conversation_data.get('episodes_discussed', []),
-            novels_discussed=conversation_data.get('novels_discussed', []),
-            primary_episode_id=conversation_data.get('primary_episode_id'),
-            primary_novel_id=conversation_data.get('primary_novel_id'),
-            conversation_scope=conversation_data.get('conversation_scope', 'general'),
-            characters_discussed=conversation_data.get('characters_discussed', [])
-        )
-        
-        return conversation, messages
-        
-    except Exception as e:
-        print(f"Error retrieving episode conversation context: {e}")
-        return None, []
 
 
 async def perform_episode_vector_search(
@@ -1073,48 +1014,6 @@ Maintain character consistency and timeline awareness when referencing episode c
         return fallback_response, None, 0.0, {}
 
 
-async def save_episode_conversation_turn(
-    conversation_id: str,
-    user_message: str,
-    assistant_response: str,
-    user_id: str,
-    is_new_conversation: bool,
-    episode_metadata: Dict[str, Any],
-    episode_ids: Optional[List[int]] = None,
-    novel_ids: Optional[List[int]] = None
-) -> None:
-    """Save conversation turn with episode associations."""
-    try:
-        # Enhanced metadata for episode conversations
-        enhanced_metadata = {
-            **episode_metadata,
-            "conversation_type": "episode_chat",
-            "episode_ids": episode_ids or [],
-            "novel_ids": novel_ids or [],
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        
-        # Save user message
-        await conversation_manager.add_message(
-            conversation_id=conversation_id,
-            user_id=user_id,
-            role="user",
-            content=user_message,
-            create_conversation=is_new_conversation,
-            metadata=enhanced_metadata
-        )
-        
-        # Save assistant response
-        await conversation_manager.add_message(
-            conversation_id=conversation_id,
-            user_id=user_id,
-            role="assistant",
-            content=assistant_response,
-            metadata=enhanced_metadata
-        )
-        
-    except Exception as e:
-        print(f"Error saving episode conversation turn: {e}")
 
 
 @router.post("/chat", response_model=EpisodeChatResponse)
@@ -1170,18 +1069,7 @@ async def episode_chat(
             novel_ids=request.novel_ids
         )
         
-        # Step 4: Save conversation turn with episode metadata (in background)
-        background_tasks.add_task(
-            save_episode_conversation_turn,
-            conversation_id=conversation_id,
-            user_message=request.message,
-            assistant_response=ai_response,
-            user_id=current_user.id,
-            is_new_conversation=is_new_conversation,
-            episode_metadata=episode_metadata,
-            episode_ids=request.episode_ids,
-            novel_ids=request.novel_ids
-        )
+        # Step 4: Conversation saving disabled (no conversation manager)
         
         # Step 5: Log query (in background)
         query_context = QueryContext(
@@ -1309,67 +1197,8 @@ async def novel_specific_chat(
     return await episode_chat(request, current_user, background_tasks)
 
 
-@router.get("/conversations/{conversation_id}", response_model=EpisodeChatConversation)
-async def get_episode_conversation(
-    conversation_id: str,
-    current_user: MockUser = Depends(get_current_user)
-) -> EpisodeChatConversation:
-    """
-    Retrieve an episode conversation by ID with episode metadata.
-    """
-    try:
-        conversation, _ = await retrieve_episode_conversation_context(
-            conversation_id=conversation_id,
-            user_id=current_user.id,
-            max_context_turns=50  # Get full conversation
-        )
-        
-        if not conversation:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Episode conversation not found"
-            )
-        
-        return conversation
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve episode conversation: {str(e)}"
-        )
 
 
-@router.delete("/conversations/{conversation_id}")
-async def delete_episode_conversation(
-    conversation_id: str,
-    current_user: MockUser = Depends(get_current_user)
-) -> Dict[str, str]:
-    """
-    Delete an episode conversation by ID.
-    """
-    try:
-        success = await conversation_manager.delete_conversation(
-            conversation_id=conversation_id,
-            user_id=current_user.id
-        )
-        
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Episode conversation not found"
-            )
-        
-        return {"message": f"Episode conversation {conversation_id} deleted successfully"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete episode conversation: {str(e)}"
-        )
 
 
 # New API endpoints for enhanced functionality
