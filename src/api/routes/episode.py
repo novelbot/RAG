@@ -580,43 +580,42 @@ async def list_novel_episodes(
         total_episodes = 0
         
         try:
-            # Get database connection
-            connection = db_manager.get_connection()
-            
-            # Count total episodes for this novel
-            count_query = "SELECT COUNT(*) as total FROM episode WHERE novel_id = %s"
-            with connection.cursor() as cursor:
-                cursor.execute(count_query, (novel_id,))
-                result = cursor.fetchone()
-                total_episodes = result['total'] if result else 0
-            
-            # Get episodes with pagination
-            episodes_query = """
-                SELECT 
-                    id as episode_id,
-                    episode_number,
-                    title as episode_title,
-                    created_at as publication_date,
-                    CHAR_LENGTH(content) as content_length
-                FROM episode 
-                WHERE novel_id = %s 
-                ORDER BY episode_number ASC 
-                LIMIT %s OFFSET %s
-            """
-            
-            with connection.cursor() as cursor:
-                cursor.execute(episodes_query, (novel_id, limit, offset))
-                db_episodes = cursor.fetchall()
+            # Use context manager for database connection
+            with db_manager.get_connection() as connection:
+                # Count total episodes for this novel
+                count_query = "SELECT COUNT(*) as total FROM episode WHERE novel_id = %s"
+                with connection.cursor() as cursor:
+                    cursor.execute(count_query, (novel_id,))
+                    result = cursor.fetchone()
+                    total_episodes = result['total'] if result else 0
                 
-                for episode in db_episodes:
-                    episodes.append({
-                        "episode_id": episode['episode_id'],
-                        "episode_number": episode['episode_number'],
-                        "episode_title": episode['episode_title'],
-                        "publication_date": episode['publication_date'].isoformat() if episode['publication_date'] else None,
-                        "content_length": episode['content_length'] or 0,
-                        "has_embedding": True  # Assume all episodes have embeddings
-                    })
+                # Get episodes with pagination
+                episodes_query = """
+                    SELECT 
+                        id as episode_id,
+                        episode_number,
+                        title as episode_title,
+                        created_at as publication_date,
+                        CHAR_LENGTH(content) as content_length
+                    FROM episode 
+                    WHERE novel_id = %s 
+                    ORDER BY episode_number ASC 
+                    LIMIT %s OFFSET %s
+                """
+                
+                with connection.cursor() as cursor:
+                    cursor.execute(episodes_query, (novel_id, limit, offset))
+                    db_episodes = cursor.fetchall()
+                    
+                    for episode in db_episodes:
+                        episodes.append({
+                            "episode_id": episode['episode_id'],
+                            "episode_number": episode['episode_number'],
+                            "episode_title": episode['episode_title'],
+                            "publication_date": episode['publication_date'].isoformat() if episode['publication_date'] else None,
+                            "content_length": episode['content_length'] or 0,
+                            "has_embedding": True  # Assume all episodes have embeddings
+                        })
         
         except Exception as e:
             # Fall back to mock data if database query fails
@@ -631,10 +630,6 @@ async def list_novel_episodes(
                     "has_embedding": True
                 })
             total_episodes = 20
-        
-        finally:
-            if 'connection' in locals():
-                connection.close()
         
         return {
             "novel_id": novel_id,
@@ -1394,34 +1389,34 @@ class ProcessingStatusResponse(BaseAPISchema):
 
 
 class ProcessAllRequest(BaseAPISchema):
-    """Process all novels request schema."""
+    """Process episodes request schema."""
     force_reprocess: bool = Field(False, description="Force reprocessing of existing episodes")
-    filter_novel_ids: Optional[List[int]] = Field(None, description="Process only specific novel IDs")
+    filter_episode_ids: Optional[List[int]] = Field(None, description="Process only specific episode IDs")
 
 
 class ProcessAllResponse(BaseAPISchema):
-    """Process all novels response schema."""
+    """Process episodes response schema."""
     message: str = Field(..., description="Status message")
-    novels_started: int = Field(..., ge=0, description="Number of novels started for processing")
+    episodes_started: int = Field(..., ge=0, description="Number of episodes started for processing")
     estimated_completion_time: Optional[str] = Field(None, description="Estimated completion time")
     processing_id: str = Field(..., description="Processing batch ID for tracking")
 
 
 @router.post("/process-all", response_model=ProcessAllResponse)
-async def process_all_novels(
+async def process_all_episodes(
     request: ProcessAllRequest,
     background_tasks: BackgroundTasks,
     current_user: MockUser = Depends(get_current_user)
 ) -> ProcessAllResponse:
     """
-    Process episodes for all novels using improved chunking logic.
+    Process specific episodes using improved chunking logic.
     
-    This endpoint starts background processing for all novels in the database,
+    This endpoint starts background processing for specific episodes or all episodes in the database,
     using the enhanced episode processing with individual episode handling
     and automatic chunking for long content.
     
     Args:
-        request: Processing configuration
+        request: Processing configuration with episode IDs filter
         background_tasks: FastAPI background tasks
         current_user: Authenticated user
         
@@ -1432,50 +1427,74 @@ async def process_all_novels(
         # Generate processing batch ID
         processing_id = f"batch_{int(time.time())}_{current_user.id[:8]}"
         
-        # Get list of novels to process
+        # Get list of episodes to process
         config = get_config()
         from ...database.base import DatabaseManager
         db_manager = DatabaseManager(config.database)
         
-        novel_ids = []
+        episode_ids = []
         try:
-            if request.filter_novel_ids:
-                # Process only specified novels
-                novel_ids = request.filter_novel_ids
-                logger.info(f"Using filtered novel IDs: {novel_ids}")
-            else:
-                # Get all novel IDs from database (exactly like CLI episode-mode)
+            if request.filter_episode_ids:
+                # Process only specified episodes
+                episode_ids = request.filter_episode_ids
+                logger.info(f"Using filtered episode IDs: {episode_ids}")
+                
+                # Validate that episode IDs exist
                 from sqlalchemy import text
                 with db_manager.get_connection() as conn:
-                    result = conn.execute(text("SELECT novel_id FROM novels"))
-                    novel_ids = [row[0] for row in result]
-                    logger.info(f"Retrieved {len(novel_ids)} novels from database: {novel_ids[:10]}...")
+                    placeholders = ','.join([':id' + str(i) for i in range(len(episode_ids))])
+                    params = {f'id{i}': episode_id for i, episode_id in enumerate(episode_ids)}
+                    result = conn.execute(
+                        text(f"SELECT episode_id FROM episode WHERE episode_id IN ({placeholders})"), 
+                        params  # Use dictionary parameters for SQLAlchemy
+                    )
+                    existing_episodes = [row[0] for row in result]
+                    
+                    if len(existing_episodes) != len(episode_ids):
+                        missing_episodes = set(episode_ids) - set(existing_episodes)
+                        logger.warning(f"Some episode IDs do not exist: {missing_episodes}")
+                        episode_ids = existing_episodes
+            else:
+                # Get all episode IDs from database
+                from sqlalchemy import text
+                with db_manager.get_connection() as conn:
+                    result = conn.execute(text("SELECT episode_id FROM episode ORDER BY episode_id"))
+                    episode_ids = [row[0] for row in result]
+                    logger.info(f"Retrieved {len(episode_ids)} episodes from database: {episode_ids[:10]}...")
             
         except Exception as e:
-            logger.error(f"Failed to query novels from database: {e}")
+            logger.error(f"Failed to query episodes from database: {e}")
             import traceback
             logger.error(f"Database query traceback: {traceback.format_exc()}")
-            # Fall back to a reasonable range
-            novel_ids = list(range(1, 70))  # Process novels 1-69
-            logger.warning(f"Using fallback novel IDs: {len(novel_ids)} novels")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to retrieve episode data: {str(e)}"
+            )
+        
+        # Check if any episodes to process
+        if not episode_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid episode IDs found to process"
+            )
         
         # Start background processing
         background_tasks.add_task(
-            process_all_novels_background,
-            novel_ids=novel_ids,
+            process_all_episodes_background,
+            episode_ids=episode_ids,
             force_reprocess=request.force_reprocess,
             processing_id=processing_id,
             user_id=current_user.id
         )
         
         # Estimate completion time (rough calculation)
-        estimated_minutes = len(novel_ids) * 2  # Assume 2 minutes per novel
+        estimated_minutes = len(episode_ids) * 0.5  # Assume 30 seconds per episode
         from datetime import datetime, timedelta
         completion_time = datetime.now() + timedelta(minutes=estimated_minutes)
         
         return ProcessAllResponse(
-            message=f"Started processing {len(novel_ids)} novels with improved chunking logic",
-            novels_started=len(novel_ids),
+            message=f"Started processing {len(episode_ids)} episodes with improved chunking logic",
+            episodes_started=len(episode_ids),
             estimated_completion_time=completion_time.isoformat(),
             processing_id=processing_id
         )
@@ -1483,7 +1502,7 @@ async def process_all_novels(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start bulk processing: {str(e)}"
+            detail=f"Failed to start episode processing: {str(e)}"
         )
 
 
@@ -1520,42 +1539,41 @@ async def get_novel_processing_status(
         processing_time = None
         
         try:
-            connection = db_manager.get_connection()
-            
-            # Get total episodes for this novel
-            count_query = "SELECT COUNT(*) as total FROM episode WHERE novel_id = %s"
-            with connection.cursor() as cursor:
-                cursor.execute(count_query, (novel_id,))
-                result = cursor.fetchone()
-                episodes_total = result['total'] if result else 0
-            
-            # Check Milvus for processed episodes
-            milvus_client = MilvusClient(config.milvus)
-            milvus_client.connect()
-            
-            if milvus_client.has_collection("episode_embeddings"):
-                # Query processed episodes from Milvus
-                try:
-                    processed_results = milvus_client.query(
-                        collection_name="episode_embeddings",
-                        expr=f"novel_id == {novel_id}",
-                        output_fields=["episode_id", "content_length"],
-                        limit=1000
-                    )
-                    
-                    episodes_processed = len(processed_results)
-                    
-                    # Count chunked episodes (episodes with multiple embeddings)
-                    # This is a simplified check - in practice you'd need more sophisticated logic
-                    if processed_results:
-                        chunked_episodes = sum(1 for result in processed_results 
-                                             if result.get('content_length', 0) > 8000)
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to query Milvus for novel {novel_id}: {e}")
-                    episodes_processed = 0
-            
-            episodes_failed = max(0, episodes_total - episodes_processed)
+            with db_manager.get_connection() as connection:
+                # Get total episodes for this novel
+                count_query = "SELECT COUNT(*) as total FROM episode WHERE novel_id = %s"
+                with connection.cursor() as cursor:
+                    cursor.execute(count_query, (novel_id,))
+                    result = cursor.fetchone()
+                    episodes_total = result['total'] if result else 0
+                
+                # Check Milvus for processed episodes
+                milvus_client = MilvusClient(config.milvus)
+                milvus_client.connect()
+                
+                if milvus_client.has_collection("episode_embeddings"):
+                    # Query processed episodes from Milvus
+                    try:
+                        processed_results = milvus_client.query(
+                            collection_name="episode_embeddings",
+                            expr=f"novel_id == {novel_id}",
+                            output_fields=["episode_id", "content_length"],
+                            limit=1000
+                        )
+                        
+                        episodes_processed = len(processed_results)
+                        
+                        # Count chunked episodes (episodes with multiple embeddings)
+                        # This is a simplified check - in practice you'd need more sophisticated logic
+                        if processed_results:
+                            chunked_episodes = sum(1 for result in processed_results 
+                                                 if result.get('content_length', 0) > 8000)
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to query Milvus for novel {novel_id}: {e}")
+                        episodes_processed = 0
+                
+                episodes_failed = max(0, episodes_total - episodes_processed)
             
         except Exception as e:
             logger.warning(f"Database query failed for novel {novel_id}: {e}")
@@ -1563,10 +1581,6 @@ async def get_novel_processing_status(
             episodes_total = 1
             episodes_processed = 0
             episodes_failed = 1
-            
-        finally:
-            if 'connection' in locals():
-                connection.close()
         
         # Calculate success rate
         success_rate = (episodes_processed / episodes_total * 100) if episodes_total > 0 else 0.0
@@ -1610,19 +1624,19 @@ async def get_novel_processing_status(
         )
 
 
-# Background task for processing all novels (CLI-style sequential processing)
-async def process_all_novels_background(
-    novel_ids: List[int],
+# Background task for processing specific episodes (CLI-style sequential processing)
+async def process_all_episodes_background(
+    episode_ids: List[int],
     force_reprocess: bool,
     processing_id: str,
     user_id: str
 ) -> None:
     """
-    Background task to process all novels using Episode-specific processing with improved chunking.
+    Background task to process specific episodes using Episode-specific processing with improved chunking.
     This mirrors the CLI command: uv run rag-cli data ingest --episode-mode --database --force
     
     Args:
-        novel_ids: List of novel IDs to process
+        episode_ids: List of episode IDs to process
         force_reprocess: Whether to reprocess existing episodes
         processing_id: Unique ID for this processing batch
         user_id: User who initiated the processing
@@ -1630,7 +1644,7 @@ async def process_all_novels_background(
     start_time = time.time()
     
     print(f"🚀 Starting Episode-specific processing with improved chunking [{processing_id}]")
-    print(f"   Novels to process: {len(novel_ids)}")
+    print(f"   Episodes to process: {len(episode_ids)}")
     print(f"   Force reprocess: {force_reprocess}")
     print(f"   User: {user_id}")
     
@@ -1677,38 +1691,40 @@ async def process_all_novels_background(
         # Setup collection first (force drop if reprocessing, same as CLI)
         await episode_manager.setup_collection(drop_existing=force_reprocess)
         
-        print(f"Found {len(novel_ids)} novels to process")
+        print(f"Found {len(episode_ids)} episodes to process")
         
         total_processed = 0
         total_failed = 0
         
-        # Process novels sequentially (exactly like CLI episode-mode)
-        for i, novel_id in enumerate(novel_ids, 1):
+        # Process episodes individually
+        for i, episode_id in enumerate(episode_ids, 1):
             try:
-                print(f"🔄 Processing Novel {novel_id} ({i}/{len(novel_ids)})")
+                print(f"🔄 Processing Episode {episode_id} ({i}/{len(episode_ids)})")
                 
-                # Add delay between novels to prevent Ollama overload (same as CLI)
+                # Add delay between episodes to prevent Ollama overload
                 if i > 1:
                     import asyncio
-                    await asyncio.sleep(2)  # 2 second delay
+                    await asyncio.sleep(1)  # 1 second delay
                 
-                result = await episode_manager.process_novel(novel_id, force_reprocess=force_reprocess)
+                result = await episode_manager.process_episodes([episode_id], force_reprocess=force_reprocess)
                 
-                episode_count = result.get('episodes_processed', 0)
-                total_processed += episode_count
-                
-                print(f"✅ Novel {novel_id}: {episode_count} episodes processed")
+                if result.get('episodes_processed', 0) > 0:
+                    total_processed += 1
+                    print(f"✅ Episode {episode_id}: processed successfully")
+                else:
+                    total_failed += 1
+                    print(f"❌ Episode {episode_id}: processing failed")
                 
             except Exception as e:
                 total_failed += 1
-                print(f"❌ Failed to process Novel {novel_id}: {e}")
+                print(f"❌ Failed to process Episode {episode_id}: {e}")
                 continue
         
         processing_time = time.time() - start_time
         
         print(f"✅ Episode processing completed [{processing_id}]")
         print(f"   Total episodes processed: {total_processed}")
-        print(f"   Failed novels: {total_failed}")
+        print(f"   Failed episodes: {total_failed}")
         print(f"   Processing time: {processing_time:.1f}s")
         
     except ImportError as e:
@@ -1781,55 +1797,54 @@ async def get_processing_statistics(
         last_updated = datetime.now(timezone.utc).isoformat()
         
         try:
-            connection = db_manager.get_connection()
-            
-            # Get total novels and episodes from database
-            with connection.cursor() as cursor:
-                # Count unique novels
-                cursor.execute("SELECT COUNT(DISTINCT novel_id) as total FROM episode")
-                result = cursor.fetchone()
-                total_novels = result['total'] if result else 0
+            with db_manager.get_connection() as connection:
+                # Get total novels and episodes from database
+                with connection.cursor() as cursor:
+                    # Count unique novels
+                    cursor.execute("SELECT COUNT(DISTINCT novel_id) as total FROM episode")
+                    result = cursor.fetchone()
+                    total_novels = result['total'] if result else 0
+                    
+                    # Count total episodes
+                    cursor.execute("SELECT COUNT(*) as total FROM episode")
+                    result = cursor.fetchone()
+                    total_episodes = result['total'] if result else 0
                 
-                # Count total episodes
-                cursor.execute("SELECT COUNT(*) as total FROM episode")
-                result = cursor.fetchone()
-                total_episodes = result['total'] if result else 0
-            
-            # Check Milvus for processed episodes
-            milvus_client = MilvusClient(config.milvus)
-            milvus_client.connect()
-            
-            if milvus_client.has_collection("episode_embeddings"):
-                try:
-                    # Get all processed episodes
-                    all_processed = milvus_client.query(
-                        collection_name="episode_embeddings",
-                        expr="",
-                        output_fields=["episode_id", "novel_id", "content_length"],
-                        limit=10000  # Adjust based on your data size
-                    )
-                    
-                    processed_episodes = len(all_processed)
-                    
-                    # Count episodes that were likely chunked (content_length > 8000 chars)
-                    if all_processed:
-                        chunked_episodes = sum(1 for ep in all_processed 
-                                             if ep.get('content_length', 0) > 8000)
-                    
-                    # Count processed novels
-                    processed_novel_ids = set(ep.get('novel_id') for ep in all_processed if ep.get('novel_id'))
-                    processed_novels = len(processed_novel_ids)
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to query Milvus statistics: {e}")
-                    processed_episodes = 0
+                # Check Milvus for processed episodes
+                milvus_client = MilvusClient(config.milvus)
+                milvus_client.connect()
+                
+                if milvus_client.has_collection("episode_embeddings"):
+                    try:
+                        # Get all processed episodes
+                        all_processed = milvus_client.query(
+                            collection_name="episode_embeddings",
+                            expr="",
+                            output_fields=["episode_id", "novel_id", "content_length"],
+                            limit=10000  # Adjust based on your data size
+                        )
+                        
+                        processed_episodes = len(all_processed)
+                        
+                        # Count episodes that were likely chunked (content_length > 8000 chars)
+                        if all_processed:
+                            chunked_episodes = sum(1 for ep in all_processed 
+                                                 if ep.get('content_length', 0) > 8000)
+                        
+                        # Count processed novels
+                        processed_novel_ids = set(ep.get('novel_id') for ep in all_processed if ep.get('novel_id'))
+                        processed_novels = len(processed_novel_ids)
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to query Milvus statistics: {e}")
+                        processed_episodes = 0
+                        processed_novels = 0
+                        chunked_episodes = 0
+                else:
                     processed_novels = 0
-                    chunked_episodes = 0
-            else:
-                processed_novels = 0
-            
-            failed_episodes = max(0, total_episodes - processed_episodes)
-            failed_novels = max(0, total_novels - processed_novels)
+                
+                failed_episodes = max(0, total_episodes - processed_episodes)
+                failed_novels = max(0, total_novels - processed_novels)
             
         except Exception as e:
             logger.warning(f"Database query failed for statistics: {e}")
@@ -1841,10 +1856,6 @@ async def get_processing_statistics(
             failed_novels = 1
             failed_episodes = 1
             chunked_episodes = 0
-            
-        finally:
-            if 'connection' in locals():
-                connection.close()
         
         # Calculate rates
         overall_success_rate = (processed_episodes / total_episodes * 100) if total_episodes > 0 else 0.0
@@ -1915,90 +1926,89 @@ async def get_failed_episodes(
         last_updated = datetime.now(timezone.utc).isoformat()
         
         try:
-            connection = db_manager.get_connection()
-            
-            # Get all episodes from database
-            base_query = """
-                SELECT 
-                    id as episode_id,
-                    novel_id,
-                    episode_number,
-                    title as episode_title,
-                    CHAR_LENGTH(content) as content_length,
-                    created_at
-                FROM episode
-            """
-            
-            params = []
-            if novel_id:
-                base_query += " WHERE novel_id = %s"
-                params.append(novel_id)
-            
-            base_query += " ORDER BY novel_id, episode_number"
-            
-            with connection.cursor() as cursor:
-                cursor.execute(base_query, params)
-                all_episodes = cursor.fetchall()
-            
-            # Get processed episodes from Milvus
-            processed_episode_ids = set()
-            
-            milvus_client = MilvusClient(config.milvus)
-            milvus_client.connect()
-            
-            if milvus_client.has_collection("episode_embeddings"):
-                try:
-                    expr = f"novel_id == {novel_id}" if novel_id else ""
-                    processed_results = milvus_client.query(
-                        collection_name="episode_embeddings",
-                        expr=expr,
-                        output_fields=["episode_id"],
-                        limit=10000
-                    )
-                    
-                    processed_episode_ids = set(result.get('episode_id') for result in processed_results 
-                                               if result.get('episode_id'))
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to query processed episodes: {e}")
-            
-            # Find failed episodes
-            failed_episode_data = []
-            novels_with_failures = set()
-            
-            for episode in all_episodes:
-                if episode['episode_id'] not in processed_episode_ids:
-                    # This episode failed processing
-                    failed_episode_data.append({
-                        "episode_id": episode['episode_id'],
-                        "novel_id": episode['novel_id'],
-                        "episode_number": episode['episode_number'],
-                        "episode_title": episode['episode_title'],
-                        "content_length": episode['content_length'],
-                        "created_at": episode['created_at'].isoformat() if episode['created_at'] else None,
-                        "error_type": "processing_failed",
-                        "error_details": "Episode not found in vector database",
-                        "likely_cause": "Token limit exceeded" if episode['content_length'] > 10000 else "Processing error"
-                    })
-                    novels_with_failures.add(episode['novel_id'])
-            
-            # Sort by novel_id and episode_number, then limit
-            failed_episode_data.sort(key=lambda x: (x['novel_id'], x['episode_number']))
-            failed_episodes = failed_episode_data[:limit]
-            
-            total_failed = len(failed_episode_data)
-            novels_affected = len(novels_with_failures)
-            
-            # Analyze common error patterns
-            error_types = {}
-            for episode in failed_episode_data:
-                error_type = episode['likely_cause']
-                error_types[error_type] = error_types.get(error_type, 0) + 1
-            
-            common_errors = [
-                {"error_type": error_type, "count": count, "percentage": (count / total_failed * 100) if total_failed > 0 else 0}
-                for error_type, count in sorted(error_types.items(), key=lambda x: x[1], reverse=True)
-            ]
+            with db_manager.get_connection() as connection:
+                # Get all episodes from database
+                base_query = """
+                    SELECT 
+                        id as episode_id,
+                        novel_id,
+                        episode_number,
+                        title as episode_title,
+                        CHAR_LENGTH(content) as content_length,
+                        created_at
+                    FROM episode
+                """
+                
+                params = []
+                if novel_id:
+                    base_query += " WHERE novel_id = %s"
+                    params.append(novel_id)
+                
+                base_query += " ORDER BY novel_id, episode_number"
+                
+                with connection.cursor() as cursor:
+                    cursor.execute(base_query, params)
+                    all_episodes = cursor.fetchall()
+                
+                # Get processed episodes from Milvus
+                processed_episode_ids = set()
+                
+                milvus_client = MilvusClient(config.milvus)
+                milvus_client.connect()
+                
+                if milvus_client.has_collection("episode_embeddings"):
+                    try:
+                        expr = f"novel_id == {novel_id}" if novel_id else ""
+                        processed_results = milvus_client.query(
+                            collection_name="episode_embeddings",
+                            expr=expr,
+                            output_fields=["episode_id"],
+                            limit=10000
+                        )
+                        
+                        processed_episode_ids = set(result.get('episode_id') for result in processed_results 
+                                                   if result.get('episode_id'))
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to query processed episodes: {e}")
+                
+                # Find failed episodes
+                failed_episode_data = []
+                novels_with_failures = set()
+                
+                for episode in all_episodes:
+                    if episode['episode_id'] not in processed_episode_ids:
+                        # This episode failed processing
+                        failed_episode_data.append({
+                            "episode_id": episode['episode_id'],
+                            "novel_id": episode['novel_id'],
+                            "episode_number": episode['episode_number'],
+                            "episode_title": episode['episode_title'],
+                            "content_length": episode['content_length'],
+                            "created_at": episode['created_at'].isoformat() if episode['created_at'] else None,
+                            "error_type": "processing_failed",
+                            "error_details": "Episode not found in vector database",
+                            "likely_cause": "Token limit exceeded" if episode['content_length'] > 10000 else "Processing error"
+                        })
+                        novels_with_failures.add(episode['novel_id'])
+                
+                # Sort by novel_id and episode_number, then limit
+                failed_episode_data.sort(key=lambda x: (x['novel_id'], x['episode_number']))
+                failed_episodes = failed_episode_data[:limit]
+                
+                total_failed = len(failed_episode_data)
+                novels_affected = len(novels_with_failures)
+                
+                # Analyze common error patterns
+                error_types = {}
+                for episode in failed_episode_data:
+                    error_type = episode['likely_cause']
+                    error_types[error_type] = error_types.get(error_type, 0) + 1
+                
+                common_errors = [
+                    {"error_type": error_type, "count": count, "percentage": (count / total_failed * 100) if total_failed > 0 else 0}
+                    for error_type, count in sorted(error_types.items(), key=lambda x: x[1], reverse=True)
+                ]
             
         except Exception as e:
             logger.warning(f"Failed to analyze failed episodes: {e}")
@@ -2007,10 +2017,6 @@ async def get_failed_episodes(
             total_failed = 0
             novels_affected = 0
             common_errors = [{"error_type": "analysis_failed", "count": 1, "percentage": 100.0}]
-            
-        finally:
-            if 'connection' in locals():
-                connection.close()
         
         return FailedEpisodesResponse(
             failed_episodes=failed_episodes,

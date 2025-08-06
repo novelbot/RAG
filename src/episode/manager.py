@@ -236,6 +236,76 @@ class EpisodeRAGManager(LoggerMixin):
             self.stats["failed_operations"] += 1
             raise ProcessingError(f"Novel processing failed: {e}")
     
+    async def process_episodes(
+        self,
+        episode_ids: List[int],
+        force_reprocess: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Process specific episodes by their IDs.
+        
+        Args:
+            episode_ids: List of episode IDs to process
+            force_reprocess: Whether to reprocess existing episodes
+            
+        Returns:
+            Processing result with statistics
+        """
+        try:
+            self.logger.info(f"Starting processing for {len(episode_ids)} episodes: {episode_ids}")
+            
+            # Ensure collection is initialized
+            if not hasattr(self.vector_store, 'collection') or self.vector_store.collection is None:
+                self.logger.info("Collection not initialized, setting up collection...")
+                await self.setup_collection(drop_existing=False)
+            
+            # Extract specific episodes from database by episode IDs
+            episodes = self.processor.extract_episodes_by_ids(episode_ids)
+            
+            if not episodes:
+                return {
+                    "status": "warning",
+                    "episode_ids": episode_ids,
+                    "message": "No episodes found with given IDs",
+                    "episodes_processed": 0
+                }
+            
+            # Process episodes (generate embeddings)
+            processed_episodes = await self.processor.process_episodes_async(episodes)
+            
+            # Store in vector database
+            if processed_episodes:
+                if force_reprocess:
+                    # Update existing episodes
+                    storage_result = self.vector_store.update_episodes(processed_episodes)
+                else:
+                    # Insert new episodes
+                    storage_result = self.vector_store.insert_episodes(processed_episodes)
+            else:
+                storage_result = {"inserted_count": 0}
+            
+            # Update statistics
+            self.stats["processed_episodes"] += len(processed_episodes)
+            self.stats["successful_operations"] += 1
+            
+            processing_stats = self.processor.get_processing_stats()
+            
+            self.logger.info(f"Episodes processing completed: {len(processed_episodes)} episodes")
+            
+            return {
+                "status": "success",
+                "episode_ids": episode_ids,
+                "episodes_processed": len(processed_episodes),
+                "episodes_stored": storage_result.get("inserted_count", 0),
+                "processing_stats": processing_stats,
+                "storage_result": storage_result
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Episodes processing failed for {episode_ids}: {e}")
+            self.stats["failed_operations"] += 1
+            raise ProcessingError(f"Episodes processing failed: {e}")
+    
     async def search_episodes(
         self,
         query: str,

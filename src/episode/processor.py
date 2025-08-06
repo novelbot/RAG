@@ -160,6 +160,18 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             self.logger.error(f"Failed to extract episodes: {e}")
             raise DatabaseError(f"Episode extraction failed: {e}")
     
+    def extract_episodes_by_ids(self, episode_ids: List[int]) -> List[EpisodeData]:
+        """
+        Convenience method to extract episodes by their IDs.
+        
+        Args:
+            episode_ids: List of episode IDs to extract
+            
+        Returns:
+            List of EpisodeData objects
+        """
+        return self.extract_episodes(episode_ids=episode_ids)
+    
     def process_episodes(
         self,
         episodes: List[EpisodeData],

@@ -80,16 +80,22 @@ class ConversationContext(BaseAPISchema):
 
 # Query Processing Schemas
 class QueryRequest(BaseAPISchema):
-    """Query request schema"""
+    """Query request schema with enhanced LangChain and RAG support"""
     query: str = Field(..., min_length=1, max_length=1000, description="Search query or question")
     max_results: int = Field(10, ge=1, le=100, description="Maximum number of results to return")
     filters: Optional[Dict[str, Any]] = Field(None, description="Optional search filters")
     include_metadata: bool = Field(True, description="Include document metadata in results")
     
-    # Conversation context fields
+    # Enhanced LangChain and RAG options
+    use_rag: bool = Field(default=True, description="Whether to use RAG with vector search")
+    use_context: bool = Field(False, description="Whether to use conversation context for this query")
     session_id: Optional[str] = Field(None, description="Conversation session ID for continuity")
     conversation_context: Optional[ConversationContext] = Field(None, description="Previous conversation context")
-    use_context: bool = Field(False, description="Whether to use conversation context for this query")
+    
+    # LLM parameters for enhanced control
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0, description="LLM temperature override")
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=8192, description="Maximum tokens for response")
+    similarity_threshold: Optional[float] = Field(default=0.7, ge=0.0, le=1.0, description="Minimum similarity threshold for RAG")
 
 
 class SearchResult(BaseAPISchema):
