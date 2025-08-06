@@ -93,5 +93,5 @@ data/uploads/
 .dockerignore
 docker-compose.override.yml
 
-.claude
-.cursor
+.claude/
+.cursor/
