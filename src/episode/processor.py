@@ -30,6 +30,11 @@ class EpisodeProcessingConfig:
     enable_chunking: bool = False    # Split long episodes into chunks
     chunk_size: int = 2000          # Characters per chunk
     chunk_overlap: int = 200        # Overlap between chunks
+    # Embedding batch processing settings (universal for all providers)
+    embedding_batch_size: int = 50  # Batch size for embedding processing
+    enable_batch_processing: bool = True  # Enable batch processing for embeddings
+    max_batch_retries: int = 5      # Max retries for batch processing
+    batch_retry_delay: float = 2.0  # Base delay for batch retries
 
 
 class EpisodeEmbeddingProcessor(LoggerMixin):
@@ -293,26 +298,31 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
         return cleaned
     
     def _generate_embeddings_batch(self, episodes: List[EpisodeData]) -> None:
-        """Generate embeddings for episodes with individual processing and chunking."""
+        """Generate embeddings for episodes with optimized batch processing for Ollama."""
         start_time = time.time()
         total_episodes = len(episodes)
         processed_count = 0
         
         try:
-            self.logger.info(f"🚀 에피소드 임베딩 개별 처리 시작: {total_episodes}개")
-            
-            for i, episode in enumerate(episodes, 1):
-                try:
-                    self._generate_single_episode_embedding(episode)
-                    processed_count += 1
-                    
-                    if i % 5 == 0 or i == total_episodes:
-                        self.logger.info(f"📊 진행상황: {i}/{total_episodes} ({(i/total_episodes)*100:.1f}%)")
+            # Use batch processing for all embedding providers (universal approach)
+            if self.config.enable_batch_processing:
+                self.logger.info(f"🚀 임베딩 배치 처리 시작: {total_episodes}개 에피소드")
+                processed_count = self._generate_embeddings_batch(episodes)
+            else:
+                self.logger.info(f"🚀 에피소드 임베딩 개별 처리 시작: {total_episodes}개")
                 
-                except Exception as e:
-                    self.logger.error(f"❌ Episode {episode.episode_id} 임베딩 실패: {e}")
-                    # 개별 에피소드 실패는 전체 처리를 중단하지 않음
-                    continue
+                for i, episode in enumerate(episodes, 1):
+                    try:
+                        self._generate_single_episode_embedding(episode)
+                        processed_count += 1
+                        
+                        if i % 5 == 0 or i == total_episodes:
+                            self.logger.info(f"📊 진행상황: {i}/{total_episodes} ({(i/total_episodes)*100:.1f}%)")
+                    
+                    except Exception as e:
+                        self.logger.error(f"❌ Episode {episode.episode_id} 임베딩 실패: {e}")
+                        # 개별 에피소드 실패는 전체 처리를 중단하지 않음
+                        continue
             
             # Update statistics
             self.stats.embedding_generation_time += time.time() - start_time
@@ -323,29 +333,316 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             self.logger.error(f"Batch embedding generation failed: {e}")
             raise EmbeddingError(f"Batch embedding generation failed: {e}")
     
+    def _generate_embeddings_batch(self, episodes: List[EpisodeData]) -> int:
+        """Generate embeddings for episodes using batch processing (universal for all providers)."""
+        processed_count = 0
+        batch_size = self.config.embedding_batch_size
+        
+        # Separate episodes into batch-processable and individual processing
+        batch_episodes = []  # Episodes that can be batched (no chunking needed)
+        individual_episodes = []  # Episodes that need chunking
+        
+        max_tokens = self._get_model_max_tokens()
+        chunking_threshold = int(max_tokens * 0.85)
+        
+        for episode in episodes:
+            estimated_tokens = int(len(episode.content) * 1.5)  # Korean text estimation
+            if estimated_tokens <= chunking_threshold:
+                batch_episodes.append(episode)
+            else:
+                individual_episodes.append(episode)
+        
+        self.logger.info(f"📊 배치 처리: {len(batch_episodes)}개, 개별 처리: {len(individual_episodes)}개")
+        
+        # Process batch episodes
+        if batch_episodes:
+            processed_count += self._process_episodes_in_batches(batch_episodes, batch_size)
+        
+        # Process individual episodes (require chunking) - also use batch processing for chunks
+        if individual_episodes:
+            processed_count += self._process_chunked_episodes_batch(individual_episodes)
+        
+        return processed_count
+    
+    def _process_episodes_in_batches(self, episodes: List[EpisodeData], batch_size: int) -> int:
+        """Process episodes in batches using Ollama batch API with metadata safety."""
+        processed_count = 0
+        total_batches = (len(episodes) + batch_size - 1) // batch_size
+        
+        # Use configured batch size
+        for batch_idx in range(0, len(episodes), batch_size):
+            batch = episodes[batch_idx:batch_idx + batch_size]
+            batch_num = (batch_idx // batch_size) + 1
+            
+            try:
+                # Create traceable batch with episode IDs for verification
+                batch_items = []
+                for episode in batch:
+                    batch_items.append({
+                        'episode_id': episode.episode_id,
+                        'content': episode.content,
+                        'episode': episode
+                    })
+                
+                batch_content = [item['content'] for item in batch_items]
+                
+                self.logger.debug(f"🔍 배치 {batch_num} 처리 순서: {[item['episode_id'] for item in batch_items]}")
+                
+                # Generate embeddings for the batch
+                from src.embedding.base import EmbeddingRequest
+                request = EmbeddingRequest(
+                    input=batch_content,
+                    encoding_format="float",
+                    batch_size=len(batch_content)
+                )
+                
+                response = self.embedding_manager.generate_embeddings(request)
+                
+                # Strict validation before assignment
+                if len(response.embeddings) != len(batch_items):
+                    raise ValueError(f"임베딩 수 불일치: 요청 {len(batch_items)}, 응답 {len(response.embeddings)}")
+                
+                # Safe assignment with verification
+                for i, (batch_item, embedding) in enumerate(zip(batch_items, response.embeddings)):
+                    episode = batch_item['episode']
+                    episode.embedding = embedding
+                    processed_count += 1
+                    
+                    self.logger.debug(f"✅ Episode {episode.episode_id} → 임베딩 {i+1}/{len(batch_items)} 할당")
+                
+                self.logger.info(f"✅ 배치 {batch_num}/{total_batches} 완료: {len(batch_items)}개 에피소드")
+                
+                # Progressive delay between batches
+                if batch_idx + batch_size < len(episodes):
+                    delay = min(0.5 + (batch_num * 0.1), 2.0)
+                    time.sleep(delay)
+                    
+            except Exception as e:
+                self.logger.error(f"❌ 배치 {batch_num}/{total_batches} 실패: {e}")
+                # Safe fallback: process each episode individually
+                self.logger.info(f"🔄 배치 실패로 개별 처리로 전환: {len(batch)}개 에피소드")
+                for episode in batch:
+                    try:
+                        self._generate_single_episode_embedding(episode)
+                        processed_count += 1
+                        self.logger.debug(f"✅ Episode {episode.episode_id} 개별 처리 성공")
+                    except Exception as individual_error:
+                        self.logger.error(f"❌ Episode {episode.episode_id} 개별 처리도 실패: {individual_error}")
+        
+        return processed_count
+    
+    def _process_chunked_episodes_batch(self, episodes: List[EpisodeData]) -> int:
+        """Process episodes that need chunking using true batch processing for all chunks."""
+        processed_count = 0
+        
+        self.logger.info(f"🔄 청킹 필요 에피소드 배치 처리: {len(episodes)}개")
+        
+        # Collect all chunks from all episodes for batch processing
+        all_chunks = []
+        episode_chunk_mapping = []  # Track which chunks belong to which episode
+        
+        # Generate chunks for all episodes first
+        for episode in episodes:
+            try:
+                from .models import EpisodeChunk
+                
+                chunk_size, overlap = self._get_optimal_chunk_settings()
+                chunks_text = self._split_content_into_chunks(episode.content, chunk_size, overlap)
+                
+                self.logger.debug(f"📚 Episode {episode.episode_id}: {len(chunks_text)}개 청크로 분할")
+                
+                # Create chunk objects
+                episode_chunks = []
+                for i, chunk_text in enumerate(chunks_text):
+                    chunk = EpisodeChunk(
+                        episode_id=episode.episode_id,
+                        chunk_index=i,
+                        content=chunk_text,
+                        episode_number=episode.episode_number,
+                        episode_title=episode.episode_title,
+                        publication_date=episode.publication_date,
+                        novel_id=episode.novel_id,
+                        total_chunks=len(chunks_text)
+                    )
+                    episode_chunks.append(chunk)
+                    all_chunks.append(chunk)
+                
+                # Store mapping
+                episode_chunk_mapping.append({
+                    'episode': episode,
+                    'chunks': episode_chunks,
+                    'start_idx': len(all_chunks) - len(episode_chunks),
+                    'end_idx': len(all_chunks)
+                })
+                
+            except Exception as e:
+                self.logger.error(f"❌ Episode {episode.episode_id} 청킹 실패: {e}")
+                # Add to failed episodes for individual fallback
+                continue
+        
+        if not all_chunks:
+            self.logger.warning("❌ 청킹된 청크가 없어 배치 처리 불가")
+            return 0
+        
+        # Process all chunks in batches
+        self.logger.info(f"🚀 모든 에피소드의 청크 배치 처리: 총 {len(all_chunks)}개 청크")
+        
+        try:
+            # Use configured batch size for chunks (works for all embedding providers)
+            chunk_batch_size = self.config.embedding_batch_size
+            self._process_all_chunks_in_batches(all_chunks, chunk_batch_size)
+            
+            # Assign processed chunks back to episodes
+            for mapping in episode_chunk_mapping:
+                episode = mapping['episode']
+                chunks = mapping['chunks']
+                episode.chunks = chunks
+                episode.embedding = None  # Clear original episode embedding
+                processed_count += 1
+                self.logger.debug(f"✅ Episode {episode.episode_id} 청킹 배치 처리 완료 ({len(chunks)}개 청크)")
+            
+        except Exception as e:
+            self.logger.error(f"❌ 청크 배치 처리 실패: {e}")
+            # Fallback to individual episode processing
+            for mapping in episode_chunk_mapping:
+                try:
+                    self._generate_single_episode_embedding(mapping['episode'])
+                    processed_count += 1
+                except Exception as fallback_error:
+                    self.logger.error(f"❌ Episode {mapping['episode'].episode_id} fallback도 실패: {fallback_error}")
+        
+        return processed_count
+    
+    def _process_all_chunks_in_batches(self, all_chunks: List, batch_size: int) -> None:
+        """Process all chunks from multiple episodes in batches."""
+        from src.embedding.base import EmbeddingRequest
+        
+        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+        
+        for batch_idx in range(0, len(all_chunks), batch_size):
+            batch_chunks = all_chunks[batch_idx:batch_idx + batch_size]
+            batch_num = (batch_idx // batch_size) + 1
+            
+            # Extract content for embedding
+            chunk_contents = [chunk.content for chunk in batch_chunks]
+            
+            self.logger.debug(f"🔍 청크 배치 {batch_num}/{total_batches} 처리: {len(batch_chunks)}개 청크")
+            
+            # Generate embeddings for the batch
+            request = EmbeddingRequest(
+                input=chunk_contents,
+                encoding_format="float",
+                batch_size=len(chunk_contents)
+            )
+            
+            response = self.embedding_manager.generate_embeddings(request)
+            
+            # Validate and assign embeddings
+            if len(response.embeddings) != len(batch_chunks):
+                raise ValueError(f"청크 배치 임베딩 수 불일치: 요청 {len(batch_chunks)}, 응답 {len(response.embeddings)}")
+            
+            # Assign embeddings to chunks
+            for chunk, embedding in zip(batch_chunks, response.embeddings):
+                chunk.embedding = embedding
+            
+            self.logger.info(f"✅ 청크 배치 {batch_num}/{total_batches} 완료: {len(batch_chunks)}개 청크")
+            
+            # Progressive delay between batches
+            if batch_idx + batch_size < len(all_chunks):
+                delay = min(0.5 + (batch_num * 0.1), 2.0)
+                time.sleep(delay)
+    
+    def _generate_chunked_embedding_optimized(self, episode: EpisodeData) -> None:
+        """Generate embeddings for chunked episode using batch processing."""
+        try:
+            from .models import EpisodeChunk
+            
+            chunk_size, overlap = self._get_optimal_chunk_settings()
+            chunks_text = self._split_content_into_chunks(episode.content, chunk_size, overlap)
+            
+            self.logger.debug(f"📚 Episode {episode.episode_id}: {len(chunks_text)}개 청크로 분할")
+            
+            # Create chunk objects
+            episode_chunks = []
+            for i, chunk_text in enumerate(chunks_text):
+                chunk = EpisodeChunk(
+                    episode_id=episode.episode_id,
+                    chunk_index=i,
+                    content=chunk_text,
+                    episode_number=episode.episode_number,
+                    episode_title=episode.episode_title,
+                    publication_date=episode.publication_date,
+                    novel_id=episode.novel_id,
+                    total_chunks=len(chunks_text)
+                )
+                episode_chunks.append(chunk)
+            
+            # Process chunks in batches using embedding provider batch API
+            if len(episode_chunks) > 1:
+                # Multiple chunks - use batch processing (universal for all providers)
+                max_chunk_batch_size = self.config.embedding_batch_size
+                all_embeddings = []
+                
+                # Process chunks in batches
+                for i in range(0, len(episode_chunks), max_chunk_batch_size):
+                    batch_chunks = episode_chunks[i:i + max_chunk_batch_size]
+                    chunk_contents = [chunk.content for chunk in batch_chunks]
+                    
+                    from src.embedding.base import EmbeddingRequest
+                    request = EmbeddingRequest(
+                        input=chunk_contents,
+                        encoding_format="float",
+                        batch_size=len(chunk_contents)
+                    )
+                    
+                    response = self.embedding_manager.generate_embeddings(request)
+                    
+                    if len(response.embeddings) == len(batch_chunks):
+                        all_embeddings.extend(response.embeddings)
+                        self.logger.debug(f"✅ Episode {episode.episode_id}: 청크 배치 {i//max_chunk_batch_size + 1} 완료 ({len(batch_chunks)}개)")
+                    else:
+                        raise EmbeddingError(f"청크 배치 임베딩 수 불일치: {len(response.embeddings)} vs {len(batch_chunks)}")
+                
+                # Assign embeddings to chunks
+                if len(all_embeddings) == len(episode_chunks):
+                    for chunk, embedding in zip(episode_chunks, all_embeddings):
+                        chunk.embedding = embedding
+                    
+                    episode.chunks = episode_chunks
+                    episode.embedding = None  # 원본 에피소드는 임베딩 없음
+                    
+                    self.logger.debug(f"✅ Episode {episode.episode_id}: 총 {len(episode_chunks)}개 청크 배치 임베딩 완료")
+                else:
+                    raise EmbeddingError(f"전체 청크 임베딩 수 불일치: {len(all_embeddings)} vs {len(episode_chunks)}")
+            else:
+                # Single chunk - direct processing
+                chunk = episode_chunks[0]
+                request = EmbeddingRequest(
+                    input=[chunk.content],
+                    encoding_format="float"
+                )
+                
+                response = self.embedding_manager.generate_embeddings(request)
+                chunk.embedding = response.embeddings[0]
+                
+                episode.chunks = episode_chunks
+                episode.embedding = None
+                
+                self.logger.debug(f"✅ Episode {episode.episode_id}: 단일 청크 임베딩 완료")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Episode {episode.episode_id} 최적화된 청킹 실패: {e}")
+            raise
+    
     def _generate_single_episode_embedding(self, episode: EpisodeData) -> None:
         """Generate embedding for a single episode with chunking if needed."""
-        max_retries = 5  # 3 -> 5로 증가
-        base_delay = 5.0  # 2.0 -> 5.0초로 증가
+        max_retries = 3  # 재시도 횟수 감소
+        base_delay = 2.0  # 기본 지연시간 감소
         
         for attempt in range(max_retries):
             try:
-                # Check provider health before processing
-                primary_provider = list(self.embedding_manager.providers.values())[0] if self.embedding_manager.providers else None
-                if primary_provider and hasattr(primary_provider, 'health_check'):
-                    health = primary_provider.health_check()
-                    if health.get('status') != 'healthy':
-                        if attempt < max_retries - 1:
-                            delay = base_delay * (2 ** attempt) 
-                            self.logger.warning(f"⚠️ Provider unhealthy, waiting {delay}s before retry {attempt + 1}")
-                            time.sleep(delay)
-                            continue
-                        else:
-                            raise EmbeddingError(f"Provider unhealthy after {max_retries} attempts")
-                
-                # Additional delay before processing to reduce server load
-                import time
-                time.sleep(1)  # 모든 에피소드 처리 전 1초 대기
+                # Skip health check to avoid infinite retry loops
+                self.logger.debug(f"Episode {episode.episode_id} 개별 처리 시도 {attempt + 1}/{max_retries}")
                 
                 content = episode.content
                 content_length = len(content)

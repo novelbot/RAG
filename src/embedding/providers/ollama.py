@@ -3,6 +3,7 @@ Ollama Embedding Provider implementation.
 """
 
 import time
+import asyncio
 from typing import List, Dict, Any, cast
 from ollama import Client, AsyncClient
 
@@ -162,8 +163,8 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             raise self._handle_api_error(e)
     
     async def _process_batched_request_async(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        """Process large requests in batches asynchronously."""
-        batch_size = request.batch_size or self.config.batch_size
+        """Process large requests in batches asynchronously with retry logic."""
+        batch_size = request.batch_size or self.config.batch_size or 50  # Default to 50
         # request.input is guaranteed to be List[str] after __post_init__
         batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
@@ -173,14 +174,10 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         model = request.model or self.config.model
         is_query = request.metadata.get("is_query", False) if request.metadata else False
         
-        for batch in batches:
-            processed_batch = self._apply_instruction_prompt(batch, model, is_query)
-            response = await self._async_client.embed(
-                model=model,
-                input=processed_batch
+        for batch_idx, batch in enumerate(batches):
+            batch_result = await self._process_single_batch_async(
+                batch, model, is_query, batch_idx, len(batches)
             )
-            
-            batch_result = self._process_response(response, model, len(batch))
             all_embeddings.extend(batch_result.embeddings)
             total_usage += batch_result.usage
         
@@ -191,9 +188,56 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             dimensions=len(all_embeddings[0]) if all_embeddings else 0
         )
     
+    async def _process_single_batch_async(
+        self, 
+        batch: List[str], 
+        model: str, 
+        is_query: bool,
+        batch_idx: int,
+        total_batches: int
+    ) -> EmbeddingResponse:
+        """Process a single batch with retry logic."""
+        max_retries = 5
+        base_delay = 2.0
+        
+        processed_batch = self._apply_instruction_prompt(batch, model, is_query)
+        
+        for attempt in range(max_retries):
+            try:
+                # Add progressive delay between batches to prevent server overload
+                if batch_idx > 0:
+                    delay = min(1.0 + (batch_idx * 0.1), 3.0)  # 0.1s to 3s progressive delay
+                    await asyncio.sleep(delay)
+                
+                response = await self._async_client.embed(
+                    model=model,
+                    input=processed_batch
+                )
+                
+                batch_result = self._process_response(response, model, len(batch))
+                self.logger.debug(f"✅ Batch {batch_idx + 1}/{total_batches} completed ({len(batch)} items)")
+                return batch_result
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                is_retryable = any(keyword in error_msg for keyword in [
+                    "connection", "timeout", "unavailable", "overloaded", "too many requests"
+                ])
+                
+                if attempt < max_retries - 1 and is_retryable:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s, 16s
+                    self.logger.warning(
+                        f"⚠️ Batch {batch_idx + 1}/{total_batches} attempt {attempt + 1} failed: {e}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    self.logger.error(f"❌ Batch {batch_idx + 1}/{total_batches} failed after {attempt + 1} attempts: {e}")
+                    raise self._handle_api_error(e)
+    
     def _process_batched_request(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        """Process large requests in batches synchronously."""
-        batch_size = request.batch_size or self.config.batch_size
+        """Process large requests in batches synchronously with retry logic."""
+        batch_size = request.batch_size or self.config.batch_size or 50  # Default to 50
         # request.input is guaranteed to be List[str] after __post_init__
         batches = self._batch_texts(cast(List[str], request.input), batch_size)
         
@@ -203,14 +247,10 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         model = request.model or self.config.model
         is_query = request.metadata.get("is_query", False) if request.metadata else False
         
-        for batch in batches:
-            processed_batch = self._apply_instruction_prompt(batch, model, is_query)
-            response = self._client.embed(
-                model=model,
-                input=processed_batch
+        for batch_idx, batch in enumerate(batches):
+            batch_result = self._process_single_batch_sync(
+                batch, model, is_query, batch_idx, len(batches)
             )
-            
-            batch_result = self._process_response(response, model, len(batch))
             all_embeddings.extend(batch_result.embeddings)
             total_usage += batch_result.usage
         
@@ -220,6 +260,53 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             usage=total_usage,
             dimensions=len(all_embeddings[0]) if all_embeddings else 0
         )
+    
+    def _process_single_batch_sync(
+        self, 
+        batch: List[str], 
+        model: str, 
+        is_query: bool,
+        batch_idx: int,
+        total_batches: int
+    ) -> EmbeddingResponse:
+        """Process a single batch with retry logic (synchronous)."""
+        max_retries = 5
+        base_delay = 2.0
+        
+        processed_batch = self._apply_instruction_prompt(batch, model, is_query)
+        
+        for attempt in range(max_retries):
+            try:
+                # Add progressive delay between batches to prevent server overload
+                if batch_idx > 0:
+                    delay = min(1.0 + (batch_idx * 0.1), 3.0)  # 0.1s to 3s progressive delay
+                    time.sleep(delay)
+                
+                response = self._client.embed(
+                    model=model,
+                    input=processed_batch
+                )
+                
+                batch_result = self._process_response(response, model, len(batch))
+                self.logger.debug(f"✅ Batch {batch_idx + 1}/{total_batches} completed ({len(batch)} items)")
+                return batch_result
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                is_retryable = any(keyword in error_msg for keyword in [
+                    "connection", "timeout", "unavailable", "overloaded", "too many requests"
+                ])
+                
+                if attempt < max_retries - 1 and is_retryable:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s, 16s
+                    self.logger.warning(
+                        f"⚠️ Batch {batch_idx + 1}/{total_batches} attempt {attempt + 1} failed: {e}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    time.sleep(delay)
+                else:
+                    self.logger.error(f"❌ Batch {batch_idx + 1}/{total_batches} failed after {attempt + 1} attempts: {e}")
+                    raise self._handle_api_error(e)
     
     def _process_response(self, response: Any, model: str, num_inputs: int) -> EmbeddingResponse:
         """Process Ollama API response."""
