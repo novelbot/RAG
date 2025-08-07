@@ -31,7 +31,7 @@ from ...database.base import DatabaseManager
 from ...services.query_logger import QueryLogger, QueryContext, QueryMetrics, QueryType, query_logger
 from ...embedding.manager import EmbeddingManager
 from ...milvus.client import MilvusClient
-from ...llm.manager import LLMManager
+from ...llm import LLMManager
 from ...llm.base import LLMRequest, LLMMessage, LLMRole
 import uuid
 

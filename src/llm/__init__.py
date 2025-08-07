@@ -6,8 +6,32 @@ from .base import (
     LLMProvider, LLMRequest, LLMResponse, LLMConfig, LLMMessage, 
     LLMRole, LLMUsage, LLMStreamChunk, BaseLLMProvider
 )
-from .manager import LLMManager, LoadBalancingStrategy, ProviderConfig, ProviderStats
-from .providers import OpenAIProvider, GeminiProvider, ClaudeProvider, OllamaProvider
+# Import from manager (now using LangChain)
+from .manager import (
+    LangChainLLMManager as LLMManager,
+    LoadBalancingStrategy, 
+    ProviderConfig, 
+    ProviderStats,
+    create_llm_manager
+)
+# Only import Ollama provider (others are handled by LangChain)
+from .providers.ollama import OllamaProvider
+
+# Create placeholder classes for backward compatibility
+class OpenAIProvider:
+    """Deprecated - use LangChain integration instead."""
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("Use LangChain integration via LLMManager instead")
+
+class GeminiProvider:
+    """Deprecated - use LangChain integration instead."""
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("Use LangChain integration via LLMManager instead")
+
+class ClaudeProvider:
+    """Deprecated - use LangChain integration instead."""
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("Use LangChain integration via LLMManager instead")
 
 __all__ = [
     # Core types
@@ -27,9 +51,12 @@ __all__ = [
     "ProviderConfig",
     "ProviderStats",
     
-    # Providers
-    "OpenAIProvider",
-    "GeminiProvider", 
-    "ClaudeProvider",
-    "OllamaProvider",
+    # Manager (now using LangChain)
+    "create_llm_manager",
+    
+    # Providers (deprecated except Ollama)
+    "OpenAIProvider",  # Deprecated
+    "GeminiProvider",  # Deprecated
+    "ClaudeProvider",  # Deprecated
+    "OllamaProvider",  # Still available for special features
 ]

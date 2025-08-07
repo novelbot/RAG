@@ -95,3 +95,6 @@ project/
 - Update in task-master when you finish the task.
 - Always execute 'uv sync' when you start a new terminal.
 - Use playwright MCP to test and debug web user inferface.
+
+## AI Memory Guidelines
+- Always use korean in Summary.

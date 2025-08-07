@@ -1,24 +1,35 @@
 """
-LLM Manager with Load Balancing and Failover Support.
+LLM Manager with LangChain Integration.
+
+This module provides a unified manager for multiple LLM providers using LangChain,
+with load balancing, failover support, and backward compatibility.
 """
 
 import asyncio
 import time
 import random
-from typing import Dict, List, Any, Optional, Union, AsyncIterator, Iterator
-from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional, Union, AsyncIterator
+from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime, timezone, timedelta
-import json
-from collections import defaultdict
+from datetime import datetime, timezone
 
+# LangChain imports
+from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
+from langchain_community.llms import Ollama
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.outputs import ChatGeneration
+
+# Local imports
 from src.llm.base import (
-    BaseLLMProvider, LLMRequest, LLMResponse, LLMStreamChunk, 
+    BaseLLMProvider, LLMRequest, LLMResponse, LLMStreamChunk,
     LLMConfig, LLMMessage, LLMRole, LLMProvider, LLMUsage
 )
-from src.llm.providers import OpenAIProvider, GeminiProvider, ClaudeProvider, OllamaProvider
+from src.llm.providers.ollama import OllamaProvider  # Keep for special features
 from src.core.logging import LoggerMixin
-from src.core.exceptions import LLMError, RateLimitError, TokenLimitError
+from src.core.exceptions import LLMError, RateLimitError
 
 
 class LoadBalancingStrategy(Enum):
@@ -61,15 +72,8 @@ class ProviderStats:
         self.consecutive_errors += 1
         self.last_request_time = datetime.now(timezone.utc)
         
-        # Mark as unhealthy if too many consecutive errors
         if self.consecutive_errors >= 5:
             self.is_healthy = False
-    
-    def get_success_rate(self) -> float:
-        """Get success rate as percentage."""
-        if self.total_requests == 0:
-            return 100.0
-        return (self.successful_requests / self.total_requests) * 100.0
 
 
 @dataclass
@@ -77,583 +81,292 @@ class ProviderConfig:
     """Configuration for a provider in the manager."""
     provider: LLMProvider
     config: LLMConfig
-    priority: int = 1  # Higher priority = preferred
+    priority: int = 1
     max_requests_per_minute: int = 60
     enabled: bool = True
-    weight: float = 1.0  # For weighted load balancing
+    weight: float = 1.0
 
 
-class LLMManager(LoggerMixin):
+class LangChainProviderAdapter(BaseLLMProvider):
+    """Adapter to make LangChain models compatible with our BaseLLMProvider interface."""
+    
+    def __init__(self, langchain_model: BaseChatModel, config: LLMConfig):
+        """Initialize adapter with LangChain model."""
+        super().__init__(config)
+        self.langchain_model = langchain_model
+    
+    async def generate_async(self, request: LLMRequest) -> LLMResponse:
+        """Generate response using LangChain model."""
+        start_time = time.time()
+        
+        try:
+            # Convert messages to LangChain format
+            langchain_messages = self._convert_messages(request.messages)
+            
+            # Add system prompt if provided
+            if request.system_prompt:
+                langchain_messages.insert(0, SystemMessage(content=request.system_prompt))
+            
+            # Generate response
+            response = await self.langchain_model.ainvoke(langchain_messages)
+            
+            # Convert response
+            response_time = time.time() - start_time
+            
+            return LLMResponse(
+                content=response.content,
+                model=self.config.model,
+                provider=self.config.provider,
+                usage=LLMUsage(
+                    prompt_tokens=len(str(langchain_messages).split()),
+                    completion_tokens=len(response.content.split()),
+                    total_tokens=len(str(langchain_messages).split()) + len(response.content.split())
+                ),
+                response_time=response_time,
+                finish_reason="stop"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"LangChain generation failed: {e}")
+            raise LLMError(f"Generation failed: {e}")
+    
+    def generate(self, request: LLMRequest) -> LLMResponse:
+        """Generate response synchronously."""
+        return asyncio.run(self.generate_async(request))
+    
+    async def stream_async(self, request: LLMRequest) -> AsyncIterator[LLMStreamChunk]:
+        """Stream response using LangChain model."""
+        try:
+            langchain_messages = self._convert_messages(request.messages)
+            
+            if request.system_prompt:
+                langchain_messages.insert(0, SystemMessage(content=request.system_prompt))
+            
+            async for chunk in self.langchain_model.astream(langchain_messages):
+                yield LLMStreamChunk(
+                    content=chunk.content,
+                    delta=chunk.content,
+                    finish_reason=None
+                )
+                
+        except Exception as e:
+            self.logger.error(f"LangChain streaming failed: {e}")
+            raise LLMError(f"Streaming failed: {e}")
+    
+    def _convert_messages(self, messages: List[LLMMessage]) -> List:
+        """Convert our message format to LangChain format."""
+        langchain_messages = []
+        for msg in messages:
+            if msg.role == LLMRole.SYSTEM:
+                langchain_messages.append(SystemMessage(content=msg.content))
+            elif msg.role == LLMRole.USER:
+                langchain_messages.append(HumanMessage(content=msg.content))
+            elif msg.role == LLMRole.ASSISTANT:
+                langchain_messages.append(AIMessage(content=msg.content))
+        return langchain_messages
+
+
+class LangChainLLMManager(LoggerMixin):
     """
-    LLM Manager with Load Balancing, Failover, and Unified Response Handling.
+    LLM Manager using LangChain providers with load balancing and failover.
     
     Features:
-    - Multiple provider support (OpenAI, Gemini, Claude, Ollama)
-    - Load balancing strategies (round-robin, random, least-used, etc.)
+    - LangChain integration for all major providers
+    - Backward compatibility with existing code
+    - Load balancing strategies
     - Automatic failover and retry logic
-    - Health monitoring and circuit breaker pattern
-    - Rate limiting and request throttling
-    - Unified response handling and normalization
+    - Health monitoring
     """
     
     def __init__(self, provider_configs: List[ProviderConfig]):
-        """
-        Initialize LLM Manager.
-        
-        Args:
-            provider_configs: List of provider configurations
-        """
-        self.provider_configs = provider_configs
+        """Initialize manager with provider configurations."""
         self.providers: Dict[LLMProvider, BaseLLMProvider] = {}
         self.provider_stats: Dict[LLMProvider, ProviderStats] = {}
-        self.load_balancing_strategy = LoadBalancingStrategy.ROUND_ROBIN
-        self.round_robin_index = 0
-        self.max_retries = 3
-        self.retry_delay = 1.0
-        self.request_counts: Dict[LLMProvider, List[datetime]] = defaultdict(list)
+        self.provider_configs = {pc.provider: pc for pc in provider_configs}
+        
+        # Load balancing
+        self.strategy = LoadBalancingStrategy.ROUND_ROBIN
+        self.current_index = 0
         
         # Initialize providers
-        self._initialize_providers()
-        
-        # Health check interval
-        self.health_check_interval = 300  # 5 minutes
-        self.last_health_check = datetime.now(timezone.utc)
+        for config in provider_configs:
+            if config.enabled:
+                self._initialize_provider(config)
     
-    def _initialize_providers(self) -> None:
-        """Initialize all configured providers."""
-        provider_classes = {
-            LLMProvider.OPENAI: OpenAIProvider,
-            LLMProvider.GEMINI: GeminiProvider,
-            LLMProvider.CLAUDE: ClaudeProvider,
-            LLMProvider.OLLAMA: OllamaProvider,
-        }
+    def _initialize_provider(self, provider_config: ProviderConfig):
+        """Initialize a single provider using LangChain."""
+        provider = provider_config.provider
+        config = provider_config.config
         
-        for provider_config in self.provider_configs:
-            if not provider_config.enabled:
+        try:
+            if provider == LLMProvider.OPENAI:
+                langchain_model = ChatOpenAI(
+                    model=config.model or "gpt-3.5-turbo",
+                    temperature=config.temperature,
+                    max_tokens=config.max_tokens,
+                    api_key=config.api_key,
+                    base_url=config.base_url,
+                    streaming=config.stream
+                )
+                self.providers[provider] = LangChainProviderAdapter(langchain_model, config)
+                
+            elif provider == LLMProvider.GEMINI:
+                langchain_model = ChatGoogleGenerativeAI(
+                    model=config.model or "gemini-pro",
+                    temperature=config.temperature,
+                    max_output_tokens=config.max_tokens,
+                    google_api_key=config.api_key,
+                    streaming=config.stream
+                )
+                self.providers[provider] = LangChainProviderAdapter(langchain_model, config)
+                
+            elif provider == LLMProvider.CLAUDE:
+                langchain_model = ChatAnthropic(
+                    model=config.model or "claude-3-sonnet-20240229",
+                    temperature=config.temperature,
+                    max_tokens=config.max_tokens,
+                    api_key=config.api_key,
+                    streaming=config.stream
+                )
+                self.providers[provider] = LangChainProviderAdapter(langchain_model, config)
+                
+            elif provider == LLMProvider.OLLAMA:
+                # Use original Ollama provider for special features
+                self.providers[provider] = OllamaProvider(config)
+            
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
+            
+            # Initialize stats
+            self.provider_stats[provider] = ProviderStats()
+            self.logger.info(f"Initialized LangChain provider: {provider.value}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize provider {provider.value}: {e}")
+            raise LLMError(f"Provider initialization failed: {e}")
+    
+    def get_provider(self, preferred_provider: Optional[LLMProvider] = None) -> BaseLLMProvider:
+        """Get a provider based on strategy and health."""
+        if preferred_provider and preferred_provider in self.providers:
+            stats = self.provider_stats[preferred_provider]
+            if stats.is_healthy:
+                return self.providers[preferred_provider]
+        
+        # Get healthy providers
+        healthy_providers = [
+            p for p, stats in self.provider_stats.items()
+            if stats.is_healthy
+        ]
+        
+        if not healthy_providers:
+            # Try to reset unhealthy providers
+            for stats in self.provider_stats.values():
+                if stats.consecutive_errors < 10:
+                    stats.is_healthy = True
+            healthy_providers = list(self.providers.keys())
+        
+        if not healthy_providers:
+            raise LLMError("No healthy providers available")
+        
+        # Select based on strategy
+        if self.strategy == LoadBalancingStrategy.ROUND_ROBIN:
+            provider = healthy_providers[self.current_index % len(healthy_providers)]
+            self.current_index += 1
+            
+        elif self.strategy == LoadBalancingStrategy.RANDOM:
+            provider = random.choice(healthy_providers)
+            
+        elif self.strategy == LoadBalancingStrategy.LEAST_USED:
+            provider = min(healthy_providers, 
+                          key=lambda p: self.provider_stats[p].total_requests)
+            
+        elif self.strategy == LoadBalancingStrategy.FASTEST_RESPONSE:
+            provider = min(healthy_providers,
+                          key=lambda p: self.provider_stats[p].average_response_time or float('inf'))
+            
+        else:  # HEALTH_BASED
+            provider = max(healthy_providers,
+                          key=lambda p: self.provider_stats[p].get_success_rate())
+        
+        return self.providers[provider]
+    
+    async def generate_async(
+        self,
+        request: LLMRequest,
+        preferred_provider: Optional[LLMProvider] = None
+    ) -> LLMResponse:
+        """Generate response with automatic failover."""
+        errors = []
+        
+        # Try preferred provider first
+        if preferred_provider:
+            try:
+                provider = self.providers.get(preferred_provider)
+                if provider:
+                    start_time = time.time()
+                    response = await provider.generate_async(request)
+                    self.provider_stats[preferred_provider].update_success(
+                        time.time() - start_time
+                    )
+                    return response
+            except Exception as e:
+                errors.append((preferred_provider, str(e)))
+                self.provider_stats[preferred_provider].update_failure(str(e))
+        
+        # Try other providers
+        for provider_enum in self.providers:
+            if provider_enum == preferred_provider:
                 continue
                 
-            provider_class = provider_classes.get(provider_config.provider)
-            if not provider_class:
-                self.logger.warning(f"Unknown provider: {provider_config.provider}")
-                continue
-            
             try:
-                provider = provider_class(provider_config.config)
-                self.providers[provider_config.provider] = provider
-                self.provider_stats[provider_config.provider] = ProviderStats()
-                self.logger.info(f"Initialized provider: {provider_config.provider}")
+                provider = self.providers[provider_enum]
+                start_time = time.time()
+                response = await provider.generate_async(request)
+                self.provider_stats[provider_enum].update_success(
+                    time.time() - start_time
+                )
+                return response
+                
             except Exception as e:
-                self.logger.error(f"Failed to initialize provider {provider_config.provider}: {e}")
+                errors.append((provider_enum, str(e)))
+                self.provider_stats[provider_enum].update_failure(str(e))
+        
+        # All providers failed
+        error_msg = "All providers failed:\n"
+        for provider, error in errors:
+            error_msg += f"  {provider.value}: {error}\n"
+        raise LLMError(error_msg)
     
-    def set_load_balancing_strategy(self, strategy: LoadBalancingStrategy) -> None:
-        """Set the load balancing strategy."""
-        self.load_balancing_strategy = strategy
-        self.logger.info(f"Set load balancing strategy to: {strategy.value}")
+    def generate(
+        self,
+        request: LLMRequest,
+        preferred_provider: Optional[LLMProvider] = None
+    ) -> LLMResponse:
+        """Synchronous wrapper for generate_async."""
+        return asyncio.run(self.generate_async(request, preferred_provider))
     
-    def get_provider_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get statistics for all providers."""
         stats = {}
-        for provider, stat in self.provider_stats.items():
+        for provider, provider_stats in self.provider_stats.items():
             stats[provider.value] = {
-                "total_requests": stat.total_requests,
-                "successful_requests": stat.successful_requests,
-                "failed_requests": stat.failed_requests,
-                "success_rate": stat.get_success_rate(),
-                "average_response_time": stat.average_response_time,
-                "is_healthy": stat.is_healthy,
-                "consecutive_errors": stat.consecutive_errors,
-                "last_request_time": stat.last_request_time.isoformat() if stat.last_request_time else None,
-                "last_error": stat.last_error
+                "total_requests": provider_stats.total_requests,
+                "successful_requests": provider_stats.successful_requests,
+                "failed_requests": provider_stats.failed_requests,
+                "average_response_time": provider_stats.average_response_time,
+                "success_rate": provider_stats.get_success_rate(),
+                "is_healthy": provider_stats.is_healthy,
+                "last_error": provider_stats.last_error
             }
         return stats
     
-    def _select_provider(self, request: LLMRequest) -> Optional[LLMProvider]:
-        """Select a provider based on the load balancing strategy."""
-        available_providers = self._get_available_providers()
-        
-        if not available_providers:
-            return None
-        
-        # Filter by model if specified
-        if request.model:
-            compatible_providers = []
-            for provider_type in available_providers:
-                provider = self.providers[provider_type]
-                try:
-                    # Check if provider supports the model
-                    available_models = provider.get_available_models()
-                    if request.model in available_models:
-                        compatible_providers.append(provider_type)
-                except Exception:
-                    # If we can't get models, assume it's compatible
-                    compatible_providers.append(provider_type)
-            
-            if compatible_providers:
-                available_providers = compatible_providers
-        
-        if not available_providers:
-            return None
-        
-        # Apply load balancing strategy
-        if self.load_balancing_strategy == LoadBalancingStrategy.ROUND_ROBIN:
-            return self._round_robin_select(available_providers)
-        elif self.load_balancing_strategy == LoadBalancingStrategy.RANDOM:
-            return self._random_select(available_providers)
-        elif self.load_balancing_strategy == LoadBalancingStrategy.LEAST_USED:
-            return self._least_used_select(available_providers)
-        elif self.load_balancing_strategy == LoadBalancingStrategy.FASTEST_RESPONSE:
-            return self._fastest_response_select(available_providers)
-        elif self.load_balancing_strategy == LoadBalancingStrategy.HEALTH_BASED:
-            return self._health_based_select(available_providers)
-        else:
-            return available_providers[0]
-    
-    def _get_available_providers(self) -> List[LLMProvider]:
-        """Get list of available and healthy providers."""
-        available = []
-        current_time = datetime.now(timezone.utc)
-        
-        for provider_config in self.provider_configs:
-            if not provider_config.enabled:
-                continue
-                
-            provider_type = provider_config.provider
-            if provider_type not in self.providers:
-                continue
-            
-            # Check rate limits
-            if self._is_rate_limited(provider_type, provider_config):
-                continue
-            
-            # Check health
-            stats = self.provider_stats.get(provider_type)
-            if stats and not stats.is_healthy:
-                # Skip if recently failed
-                if stats.last_request_time and current_time - stats.last_request_time < timedelta(minutes=5):
-                    continue
-            
-            available.append(provider_type)
-        
-        return available
-    
-    def _is_rate_limited(self, provider_type: LLMProvider, config: ProviderConfig) -> bool:
-        """Check if provider is rate limited."""
-        current_time = datetime.now(timezone.utc)
-        requests = self.request_counts[provider_type]
-        
-        # Clean old requests (older than 1 minute)
-        cutoff_time = current_time - timedelta(minutes=1)
-        self.request_counts[provider_type] = [
-            req_time for req_time in requests if req_time > cutoff_time
-        ]
-        
-        # Check if we've exceeded the limit
-        return len(self.request_counts[provider_type]) >= config.max_requests_per_minute
-    
-    def _round_robin_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
-        """Round-robin provider selection."""
-        if not providers:
-            return None
-        
-        provider = providers[self.round_robin_index % len(providers)]
-        self.round_robin_index += 1
-        return provider
-    
-    def _random_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
-        """Random provider selection."""
-        if not providers:
-            return None
-        return random.choice(providers)
-    
-    def _least_used_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
-        """Select provider with least usage."""
-        if not providers:
-            return None
-            
-        min_requests = float('inf')
-        selected_provider = None
-        
-        for provider in providers:
-            stats = self.provider_stats.get(provider)
-            if stats and stats.total_requests < min_requests:
-                min_requests = stats.total_requests
-                selected_provider = provider
-        
-        return selected_provider or providers[0]
-    
-    def _fastest_response_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
-        """Select provider with fastest average response time."""
-        if not providers:
-            return None
-            
-        min_response_time = float('inf')
-        selected_provider = None
-        
-        for provider in providers:
-            stats = self.provider_stats.get(provider)
-            if stats and stats.average_response_time > 0 and stats.average_response_time < min_response_time:
-                min_response_time = stats.average_response_time
-                selected_provider = provider
-        
-        return selected_provider or providers[0]
-    
-    def _health_based_select(self, providers: List[LLMProvider]) -> Optional[LLMProvider]:
-        """Select provider based on health score."""
-        if not providers:
-            return None
-            
-        best_score = -1
-        selected_provider = None
-        
-        for provider in providers:
-            stats = self.provider_stats.get(provider)
-            if not stats:
-                continue
-            
-            # Calculate health score (0-100)
-            health_score = stats.get_success_rate()
-            
-            # Penalize for consecutive errors
-            health_score -= stats.consecutive_errors * 10
-            
-            # Bonus for fast response times
-            if stats.average_response_time > 0:
-                health_score += max(0, 50 - stats.average_response_time)
-            
-            if health_score > best_score:
-                best_score = health_score
-                selected_provider = provider
-        
-        return selected_provider or providers[0]
-    
-    async def generate_async(self, request: LLMRequest) -> LLMResponse:
-        """
-        Generate response asynchronously with load balancing and failover.
-        
-        Args:
-            request: LLM request
-            
-        Returns:
-            LLM response
-        """
-        for attempt in range(self.max_retries):
-            provider_type = self._select_provider(request)
-            
-            if not provider_type:
-                raise LLMError("No available providers")
-            
-            provider = self.providers[provider_type]
-            
-            try:
-                start_time = time.time()
-                
-                # Track request count for rate limiting
-                self.request_counts[provider_type].append(datetime.now(timezone.utc))
-                
-                # Make the request
-                response = await provider.generate_async(request)
-                
-                # Update stats
-                response_time = time.time() - start_time
-                self.provider_stats[provider_type].update_success(response_time)
-                
-                # Add provider info to response metadata
-                response.metadata.update({
-                    "provider": provider_type.value,
-                    "attempt": attempt + 1,
-                    "load_balancing_strategy": self.load_balancing_strategy.value
-                })
-                
-                return response
-                
-            except Exception as e:
-                # Update stats
-                self.provider_stats[provider_type].update_failure(str(e))
-                
-                self.logger.warning(f"Provider {provider_type.value} failed (attempt {attempt + 1}): {e}")
-                
-                # If it's the last attempt, raise the error
-                if attempt == self.max_retries - 1:
-                    raise
-                
-                # Wait before retrying
-                await asyncio.sleep(self.retry_delay * (2 ** attempt))
-        
-        raise LLMError("All providers failed after maximum retries")
-    
-    def generate(self, request: LLMRequest) -> LLMResponse:
-        """
-        Generate response synchronously with load balancing and failover.
-        
-        Args:
-            request: LLM request
-            
-        Returns:
-            LLM response
-        """
-        for attempt in range(self.max_retries):
-            provider_type = self._select_provider(request)
-            
-            if not provider_type:
-                raise LLMError("No available providers")
-            
-            provider = self.providers[provider_type]
-            
-            try:
-                start_time = time.time()
-                
-                # Track request count for rate limiting
-                self.request_counts[provider_type].append(datetime.now(timezone.utc))
-                
-                # Make the request
-                response = provider.generate(request)
-                
-                # Update stats
-                response_time = time.time() - start_time
-                self.provider_stats[provider_type].update_success(response_time)
-                
-                # Add provider info to response metadata
-                response.metadata.update({
-                    "provider": provider_type.value,
-                    "attempt": attempt + 1,
-                    "load_balancing_strategy": self.load_balancing_strategy.value
-                })
-                
-                return response
-                
-            except Exception as e:
-                # Update stats
-                self.provider_stats[provider_type].update_failure(str(e))
-                
-                self.logger.warning(f"Provider {provider_type.value} failed (attempt {attempt + 1}): {e}")
-                
-                # If it's the last attempt, raise the error
-                if attempt == self.max_retries - 1:
-                    raise
-                
-                # Wait before retrying
-                time.sleep(self.retry_delay * (2 ** attempt))
-        
-        raise LLMError("All providers failed after maximum retries")
-    
-    async def generate_stream_async(self, request: LLMRequest) -> AsyncIterator[LLMStreamChunk]:
-        """
-        Generate streaming response asynchronously with load balancing.
-        
-        Args:
-            request: LLM request
-            
-        Yields:
-            LLM stream chunks
-        """
-        provider_type = self._select_provider(request)
-        
-        if not provider_type:
-            raise LLMError("No available providers")
-        
-        provider = self.providers[provider_type]
-        
-        try:
-            start_time = time.time()
-            
-            # Track request count for rate limiting
-            self.request_counts[provider_type].append(datetime.now(timezone.utc))
-            
-            # Make the streaming request
-            async for chunk in provider.generate_stream_async(request):
-                # Add provider info to chunk metadata
-                chunk.metadata.update({
-                    "provider": provider_type.value,
-                    "load_balancing_strategy": self.load_balancing_strategy.value
-                })
-                
-                yield chunk
-                
-                # Update stats on final chunk
-                if chunk.finish_reason:
-                    response_time = time.time() - start_time
-                    self.provider_stats[provider_type].update_success(response_time)
-                    
-        except Exception as e:
-            # Update stats
-            self.provider_stats[provider_type].update_failure(str(e))
-            raise
-    
-    def generate_stream(self, request: LLMRequest) -> Iterator[LLMStreamChunk]:
-        """
-        Generate streaming response synchronously with load balancing.
-        
-        Args:
-            request: LLM request
-            
-        Yields:
-            LLM stream chunks
-        """
-        provider_type = self._select_provider(request)
-        
-        if not provider_type:
-            raise LLMError("No available providers")
-        
-        provider = self.providers[provider_type]
-        
-        try:
-            start_time = time.time()
-            
-            # Track request count for rate limiting
-            self.request_counts[provider_type].append(datetime.now(timezone.utc))
-            
-            # Make the streaming request
-            for chunk in provider.generate_stream(request):
-                # Add provider info to chunk metadata
-                chunk.metadata.update({
-                    "provider": provider_type.value,
-                    "load_balancing_strategy": self.load_balancing_strategy.value
-                })
-                
-                yield chunk
-                
-                # Update stats on final chunk
-                if chunk.finish_reason:
-                    response_time = time.time() - start_time
-                    self.provider_stats[provider_type].update_success(response_time)
-                    
-        except Exception as e:
-            # Update stats
-            self.provider_stats[provider_type].update_failure(str(e))
-            raise
-    
-    async def count_tokens_async(self, messages: List[LLMMessage], model: str) -> int:
-        """
-        Count tokens in messages asynchronously.
-        
-        Args:
-            messages: List of messages
-            model: Model name
-            
-        Returns:
-            Token count
-        """
-        # Try to find a provider that supports the model
-        for provider_type, provider in self.providers.items():
-            try:
-                return await provider.count_tokens_async(messages, model)
-            except Exception as e:
-                self.logger.warning(f"Token counting failed for provider {provider_type.value}: {e}")
-                continue
-        
-        # Fallback to character-based estimation
-        total_chars = sum(len(msg.content) for msg in messages)
-        return total_chars // 4  # Rough approximation: 4 chars per token
-    
-    def count_tokens(self, messages: List[LLMMessage], model: str) -> int:
-        """
-        Count tokens in messages synchronously.
-        
-        Args:
-            messages: List of messages
-            model: Model name
-            
-        Returns:
-            Token count
-        """
-        # Try to find a provider that supports the model
-        for provider_type, provider in self.providers.items():
-            try:
-                return provider.count_tokens(messages, model)
-            except Exception as e:
-                self.logger.warning(f"Token counting failed for provider {provider_type.value}: {e}")
-                continue
-        
-        # Fallback to character-based estimation
-        total_chars = sum(len(msg.content) for msg in messages)
-        return total_chars // 4  # Rough approximation: 4 chars per token
-    
-    def get_available_models(self) -> Dict[str, List[str]]:
-        """
-        Get available models from all providers.
-        
-        Returns:
-            Dictionary mapping provider names to model lists
-        """
-        models = {}
-        for provider_type, provider in self.providers.items():
-            try:
-                models[provider_type.value] = provider.get_available_models()
-            except Exception as e:
-                self.logger.warning(f"Failed to get models for provider {provider_type.value}: {e}")
-                models[provider_type.value] = []
-        
-        return models
-    
-    async def health_check_async(self) -> Dict[str, Any]:
-        """
-        Perform health check on all providers.
-        
-        Returns:
-            Health check results
-        """
-        results = {}
-        
-        for provider_type, provider in self.providers.items():
-            try:
-                health_result = await provider.health_check_async()
-                results[provider_type.value] = health_result
-                
-                # Update health status based on result
-                if health_result.get("status") == "healthy":
-                    self.provider_stats[provider_type].is_healthy = True
-                    self.provider_stats[provider_type].consecutive_errors = 0
-                else:
-                    self.provider_stats[provider_type].is_healthy = False
-                    
-            except Exception as e:
-                results[provider_type.value] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                self.provider_stats[provider_type].is_healthy = False
-        
-        self.last_health_check = datetime.now(timezone.utc)
-        return results
-    
-    def health_check(self) -> Dict[str, Any]:
-        """
-        Perform health check on all providers synchronously.
-        
-        Returns:
-            Health check results
-        """
-        results = {}
-        
-        for provider_type, provider in self.providers.items():
-            try:
-                health_result = provider.health_check()
-                results[provider_type.value] = health_result
-                
-                # Update health status based on result
-                if health_result.get("status") == "healthy":
-                    self.provider_stats[provider_type].is_healthy = True
-                    self.provider_stats[provider_type].consecutive_errors = 0
-                else:
-                    self.provider_stats[provider_type].is_healthy = False
-                    
-            except Exception as e:
-                results[provider_type.value] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                self.provider_stats[provider_type].is_healthy = False
-        
-        self.last_health_check = datetime.now(timezone.utc)
-        return results
-    
-    def get_manager_info(self) -> Dict[str, Any]:
-        """Get manager information and status."""
-        return {
-            "total_providers": len(self.providers),
-            "healthy_providers": sum(1 for stats in self.provider_stats.values() if stats.is_healthy),
-            "load_balancing_strategy": self.load_balancing_strategy.value,
-            "last_health_check": self.last_health_check.isoformat(),
-            "provider_stats": self.get_provider_stats(),
-            "available_models": self.get_available_models()
-        }
+    def set_load_balancing_strategy(self, strategy: LoadBalancingStrategy) -> None:
+        """Set the load balancing strategy."""
+        self.strategy = strategy
+        self.logger.info(f"Load balancing strategy set to: {strategy.value}")
+
+
+# Factory function for backward compatibility
+def create_llm_manager(provider_configs: List[ProviderConfig]) -> LangChainLLMManager:
+    """Create LLM manager with LangChain providers."""
+    return LangChainLLMManager(provider_configs)

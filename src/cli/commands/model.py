@@ -11,7 +11,7 @@ from ..utils import (
 )
 
 from src.core.config import get_config
-from src.llm.manager import LLMManager
+from src.llm import LLMManager
 from src.embedding.manager import EmbeddingManager
 from src.llm.base import LLMRequest, LLMMessage, LLMRole
 from src.embedding.base import EmbeddingRequest

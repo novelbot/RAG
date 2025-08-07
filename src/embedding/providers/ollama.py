@@ -60,7 +60,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             "requires_instruction_prompt": True
         },
         "bge-m3": {
-            "dimensions": 768,
+            "dimensions": 1024,
             "max_tokens": 8192,
             "description": "BGE-M3 multilingual embedding model"
         }

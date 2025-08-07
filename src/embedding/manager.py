@@ -17,7 +17,9 @@ from src.embedding.base import (
     EmbeddingDimension, EmbeddingUsage
 )
 from src.embedding.types import EmbeddingConfig, EmbeddingProvider
-from src.embedding.providers import OpenAIEmbeddingProvider, GoogleEmbeddingProvider, OllamaEmbeddingProvider
+from src.embedding.providers import OllamaEmbeddingProvider
+# OpenAI and Google providers are now handled by LangChain
+from src.embedding.factory_langchain import get_langchain_embedding_client
 from src.core.logger_mixin import LoggerMixin
 from src.core.exceptions import EmbeddingError, RateLimitError, ConfigurationError
 
@@ -152,13 +154,9 @@ class EmbeddingManager(LoggerMixin):
         self.last_health_check = datetime.now(timezone.utc)
     
     def _initialize_providers(self) -> None:
-        """Initialize all configured providers."""
-        provider_classes = {
-            EmbeddingProvider.OPENAI: OpenAIEmbeddingProvider,
-            EmbeddingProvider.GOOGLE: GoogleEmbeddingProvider,
-            EmbeddingProvider.OLLAMA: OllamaEmbeddingProvider,
-            # Note: HuggingFace provider not implemented yet, using Ollama as fallback
-        }
+        """Initialize all configured providers using LangChain."""
+        # Special case for Ollama (keeps its custom features)
+        ollama_class = OllamaEmbeddingProvider
         
         # Handle both dict and list input
         if isinstance(self.provider_configs, dict):
@@ -185,13 +183,8 @@ class EmbeddingManager(LoggerMixin):
                     self.logger.warning(f"Unknown provider string: {provider_type}")
                     continue
                 
-            provider_class = provider_classes.get(provider_type)
-            if not provider_class:
-                self.logger.warning(f"Unknown provider: {provider_type}")
-                continue
-            
             try:
-                # Handle both EmbeddingProviderConfig and EmbeddingConfig objects (Context7 MCP pattern)
+                # Handle both EmbeddingProviderConfig and EmbeddingConfig objects
                 if hasattr(provider_config, 'config'):
                     # This is an EmbeddingProviderConfig object
                     embedding_config = provider_config.config
@@ -199,7 +192,12 @@ class EmbeddingManager(LoggerMixin):
                     # This is an EmbeddingConfig object
                     embedding_config = provider_config
                 
-                provider = provider_class(embedding_config)
+                # Use LangChain factory for most providers, except Ollama
+                if provider_type == EmbeddingProvider.OLLAMA:
+                    provider = ollama_class(embedding_config)
+                else:
+                    # Use LangChain factory for OpenAI, Google, etc.
+                    provider = get_langchain_embedding_client(embedding_config)
                 self.providers[provider_type] = provider
                 self.provider_stats[provider_type] = EmbeddingProviderStats()
                 self.logger.info(f"Initialized embedding provider: {provider_type}")

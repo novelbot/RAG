@@ -87,8 +87,7 @@ async def initialize_components(config):
     
     # Initialize LLM clients
     try:
-        from ..llm.manager import LLMManager, ProviderConfig, LoadBalancingStrategy
-        from ..llm.base import LLMProvider
+        from ..llm import LLMManager, ProviderConfig, LoadBalancingStrategy, LLMProvider
         
         # Create provider configurations from config
         provider_configs = []

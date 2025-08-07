@@ -118,6 +118,9 @@ class MilvusCollection(LoggerMixin):
                     using=self.client.alias
                 )
                 self.logger.info(f"Connected to existing collection: {self.collection_name}")
+                
+                # Check if index exists for vector field
+                self._ensure_index_exists()
             else:
                 # Create new collection
                 collection_schema = self.schema.create_collection_schema()
@@ -128,10 +131,55 @@ class MilvusCollection(LoggerMixin):
                     consistency_level="Bounded"
                 )
                 self.logger.info(f"Created new collection: {self.collection_name}")
+                
+                # Create index for vector field
+                self._create_default_index()
             
         except Exception as e:
             self.logger.error(f"Failed to initialize collection: {e}")
             raise CollectionError(f"Collection initialization failed: {e}")
+    
+    def _create_default_index(self) -> None:
+        """Create default index for vector field."""
+        try:
+            vector_field = self.get_vector_field_name()
+            
+            # Default index parameters
+            index_params = {
+                "metric_type": "L2",
+                "index_type": "IVF_FLAT",
+                "params": {"nlist": 128}
+            }
+            
+            self._collection.create_index(
+                field_name=vector_field,
+                index_params=index_params
+            )
+            self.logger.info(f"Created default index for field '{vector_field}' in collection '{self.collection_name}'")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to create default index: {e}")
+            # Don't raise - collection can still work without index, just slower
+    
+    def _ensure_index_exists(self) -> None:
+        """Ensure index exists for vector field, create if missing."""
+        try:
+            vector_field = self.get_vector_field_name()
+            
+            # Check if index exists
+            try:
+                index = self._collection.index(field_name=vector_field)
+                if index:
+                    self.logger.debug(f"Index already exists for field '{vector_field}'")
+                    return
+            except Exception:
+                # Index doesn't exist, create it
+                self.logger.info(f"No index found for field '{vector_field}', creating...")
+                self._create_default_index()
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to ensure index exists: {e}")
+            # Don't raise - collection can still work without index
     
     def load(self, timeout: Optional[float] = None) -> None:
         """
