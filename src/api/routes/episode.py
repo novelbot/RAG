@@ -5,7 +5,7 @@ This module provides API endpoints for episode-specific search and query operati
 supporting filtering by episode IDs and sorting by episode numbers.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from fastapi.security import HTTPBearer
 from fastapi.responses import StreamingResponse
 from typing import Dict, List, Any, Optional, Set, AsyncIterator
@@ -1403,9 +1403,42 @@ async def novel_specific_chat(
     return await episode_chat(request, current_user, background_tasks)
 
 
+@router.get("/debug/prompt/{conversation_id}")
+async def get_debug_prompt(
+    conversation_id: str,
+    request: Request,
+    current_user: SimpleUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get the debug prompt for a conversation (for testing/debugging purposes).
+    
+    Args:
+        conversation_id: The conversation ID to get prompt for
+        request: FastAPI request object
+        current_user: Authenticated user
+        
+    Returns:
+        Debug information including the prompt
+    """
+    if not hasattr(request.app.state, 'debug_prompts'):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No debug prompts available"
+        )
+    
+    if conversation_id not in request.app.state.debug_prompts:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No debug prompt found for conversation {conversation_id}"
+        )
+    
+    return request.app.state.debug_prompts[conversation_id]
+
+
 @router.post("/chat/stream")
 async def episode_chat_stream(
     request: EpisodeChatRequest,
+    fastapi_request: Request,
     current_user: SimpleUser = Depends(get_current_user),
     rag_manager: EpisodeRAGManager = Depends(get_rag_manager)
 ) -> StreamingResponse:
@@ -1550,6 +1583,16 @@ User Question: {request.message}
                 print("-"*40)
                 print(prompt)
                 print("="*80 + "\n")
+                
+                # Store prompt for debugging (in memory, temporary)
+                if not hasattr(fastapi_request.app.state, 'debug_prompts'):
+                    fastapi_request.app.state.debug_prompts = {}
+                fastapi_request.app.state.debug_prompts[conversation_id] = {
+                    'prompt': prompt,
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'context_messages': len(conversation_context),
+                    'episode_sources': len(episode_sources)
+                }
                 
                 # Step 3: Create LLM manager and stream response
                 config = get_config()

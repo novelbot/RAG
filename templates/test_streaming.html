@@ -200,6 +200,9 @@
                 <h5 class="mb-0">
                     📝 Streaming Response
                     <span id="streamingIndicator" class="streaming-indicator" style="display: none;"></span>
+                    <button class="btn btn-sm btn-light float-end" onclick="fetchDebugPrompt()" id="debugPromptBtn" style="display: none;">
+                        🔍 Show LLM Prompt
+                    </button>
                 </h5>
             </div>
             <div class="card-body">
@@ -217,6 +220,17 @@
                     <h5 class="mb-3">📊 Metadata</h5>
                     <div id="metadataContent"></div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Debug Prompt Section -->
+        <div class="card mb-4" id="debugPromptSection" style="display: none;">
+            <div class="card-header bg-warning">
+                <h5 class="mb-0">🔍 LLM Prompt Debug</h5>
+            </div>
+            <div class="card-body">
+                <div id="promptInfo" class="mb-3"></div>
+                <pre id="promptContent" class="bg-light p-3" style="max-height: 500px; overflow-y: auto; white-space: pre-wrap;"></pre>
             </div>
         </div>
 
@@ -440,7 +454,59 @@
                     <small class="text-muted">This ID has been saved for your next message</small>
                 `;
                 output.appendChild(convDiv);
+                
+                // Show debug prompt button after conversation is established
+                document.getElementById('debugPromptBtn').style.display = 'inline-block';
             }
+        }
+        
+        async function fetchDebugPrompt() {
+            if (!authToken || !currentConversationId) {
+                alert('No conversation ID available');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/v1/episode/debug/prompt/${currentConversationId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    displayDebugPrompt(data);
+                } else {
+                    const error = await response.json();
+                    alert(`Failed to fetch debug prompt: ${error.detail}`);
+                }
+            } catch (error) {
+                alert(`Error fetching debug prompt: ${error.message}`);
+            }
+        }
+        
+        function displayDebugPrompt(data) {
+            const debugSection = document.getElementById('debugPromptSection');
+            const promptInfo = document.getElementById('promptInfo');
+            const promptContent = document.getElementById('promptContent');
+            
+            debugSection.style.display = 'block';
+            
+            // Display metadata
+            promptInfo.innerHTML = `
+                <div class="alert alert-light">
+                    <strong>Prompt Metadata:</strong><br>
+                    <span class="metadata-badge">Timestamp: ${data.timestamp}</span>
+                    <span class="metadata-badge">Context Messages: ${data.context_messages}</span>
+                    <span class="metadata-badge">Episode Sources: ${data.episode_sources}</span>
+                </div>
+            `;
+            
+            // Display the actual prompt
+            promptContent.textContent = data.prompt;
+            
+            // Scroll to the debug section
+            debugSection.scrollIntoView({ behavior: 'smooth' });
         }
 
         function displayNoResults(data) {
