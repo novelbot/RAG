@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict, Any
 import asyncio
 
-from ...auth.dependencies import MockUser
+# MockUser removed - using actual User model from database
 from ...auth.sqlite_auth import auth_manager
 from ...auth.jwt_manager import JWTManager
 from ..schemas import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse, RefreshTokenRequest

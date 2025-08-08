@@ -7,13 +7,15 @@ supporting filtering by episode IDs and sorting by episode numbers.
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import HTTPBearer
-from typing import Dict, List, Any, Optional, Set
+from fastapi.responses import StreamingResponse
+from typing import Dict, List, Any, Optional, Set, AsyncIterator
 import asyncio
 import time
 import logging
 import re
+import json
 
-from ...auth.dependencies import get_current_user, MockUser
+from ...auth.dependencies import get_current_user, SimpleUser
 from ..schemas import (
     BaseAPISchema, MessageResponse, 
     EpisodeChatRequest, EpisodeChatResponse, EpisodeChatConversation, 
@@ -31,8 +33,8 @@ from ...database.base import DatabaseManager
 from ...services.query_logger import QueryLogger, QueryContext, QueryMetrics, QueryType, query_logger
 from ...embedding.manager import EmbeddingManager
 from ...milvus.client import MilvusClient
-from ...llm import LLMManager
-from ...llm.base import LLMRequest, LLMMessage, LLMRole
+from ...llm import LLMManager, ProviderConfig, create_llm_manager
+from ...llm.base import LLMRequest, LLMMessage, LLMRole, LLMConfig, LLMProvider
 import uuid
 
 # Helper functions
@@ -200,11 +202,56 @@ security = HTTPBearer()
 logger = logging.getLogger(__name__)
 
 
+# Dependency injection for EpisodeRAGManager
+async def get_rag_manager() -> EpisodeRAGManager:
+    """
+    Get EpisodeRAGManager instance for dependency injection.
+    
+    Returns:
+        EpisodeRAGManager: Configured RAG manager instance
+    """
+    config = get_config()
+    
+    # Initialize database manager
+    from ...database.base import DatabaseManager
+    db_manager = DatabaseManager(config.database)
+    
+    # Get global embedding manager from app startup
+    import sys
+    app_module = sys.modules.get('src.core.app')
+    embedding_manager = getattr(app_module, 'embedding_manager', None)
+    
+    if not embedding_manager:
+        logger.warning("Global embedding manager not found, creating new instance")
+        from ...embedding.factory import get_embedding_manager
+        embedding_manager = get_embedding_manager([config.embedding])
+    
+    # Initialize Milvus client
+    milvus_client = MilvusClient(config.milvus)
+    milvus_client.connect()
+    
+    # Create Episode RAG Manager
+    episode_config = EpisodeRAGConfig(
+        collection_name="episode_embeddings",
+        default_search_limit=5
+    )
+    
+    episode_rag_manager = await create_episode_rag_manager(
+        database_manager=db_manager,
+        embedding_manager=embedding_manager,
+        milvus_client=milvus_client,
+        config=episode_config,
+        setup_collection=False  # Assume collection already exists
+    )
+    
+    return episode_rag_manager
+
+
 @router.post("/search", response_model=EpisodeSearchResponse)
 async def search_episodes(
     request: EpisodeQueryRequest,
     background_tasks: BackgroundTasks,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> EpisodeSearchResponse:
     """
     Search episodes using vector similarity with episode-specific filtering.
@@ -318,7 +365,7 @@ async def search_episodes(
 async def get_episode_context(
     request: EpisodeContextRequest,
     background_tasks: BackgroundTasks,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> EpisodeContextResponse:
     """
     Get episode content as structured context for LLM consumption.
@@ -402,7 +449,7 @@ async def get_episode_context(
 async def ask_about_episodes(
     request: EpisodeRAGRequest,
     background_tasks: BackgroundTasks,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> EpisodeRAGResponse:
     """
     Ask questions about specific episodes using RAG.
@@ -495,8 +542,23 @@ async def ask_about_episodes(
             if len(context_text) > request.max_context_length:
                 context_text = context_text[:request.max_context_length]
             
-            # Create LLM manager
-            llm_manager = LLMManager(config)
+            # Create LLM manager with proper provider configuration
+            provider_configs = []
+            if config.llm.provider == "ollama":
+                provider_config = ProviderConfig(
+                    provider=LLMProvider.OLLAMA,
+                    config=LLMConfig(
+                        provider=LLMProvider.OLLAMA,
+                        model=config.llm.model,
+                        temperature=config.llm.temperature,
+                        max_tokens=config.llm.max_tokens,
+                        enable_streaming=False,
+                        base_url=config.llm.base_url
+                    )
+                )
+                provider_configs.append(provider_config)
+            
+            llm_manager = create_llm_manager(provider_configs)
             
             # Prepare prompt
             prompt = f"""Based on the following episode content, please answer this question: {request.query}
@@ -509,7 +571,7 @@ Please provide a detailed and helpful answer based on the episode information pr
             # Generate response
             llm_request = LLMRequest(
                 messages=[LLMMessage(role=LLMRole.USER, content=prompt)],
-                model=config.llm.default_model,
+                model=config.llm.model,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens
             )
@@ -548,7 +610,7 @@ async def list_novel_episodes(
     novel_id: int,
     limit: int = 50,
     offset: int = 0,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     List episodes for a specific novel.
@@ -647,7 +709,7 @@ async def process_novel_episodes(
     novel_id: int,
     background_tasks: BackgroundTasks,
     force_reprocess: bool = False,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> MessageResponse:
     """
     Process episodes for a novel (extract, embed, and store).
@@ -928,8 +990,24 @@ async def generate_episode_chat_response(
     """Generate AI response using episode context and conversation history."""
     try:
         config = get_config()
-        llm_manager = LLMManager(config)
-        response_generator = SingleLLMGenerator(llm_manager)
+        
+        # Create LLM manager with proper provider configuration
+        provider_configs = []
+        if config.llm.provider == "ollama":
+            provider_config = ProviderConfig(
+                provider=LLMProvider.OLLAMA,
+                config=LLMConfig(
+                    provider=LLMProvider.OLLAMA,
+                    model=config.llm.model,
+                    temperature=config.llm.temperature,
+                    max_tokens=config.llm.max_tokens,
+                    enable_streaming=False,
+                    base_url=config.llm.base_url
+                )
+            )
+            provider_configs.append(provider_config)
+        
+        llm_manager = create_llm_manager(provider_configs)
         
         # Build episode context
         context_parts = []
@@ -976,17 +1054,19 @@ User Question: {user_message}
 
 Maintain character consistency and timeline awareness when referencing episode content. If you cannot find relevant information in the provided episodes, mention this clearly."""
         
-        # Generate response
-        llm_request = ResponseRequest(
-            prompt=prompt,
-            model=config.llm.default_model,
+        # Generate response using LLM manager directly
+        llm_request = LLMRequest(
+            messages=[
+                LLMMessage(role=LLMRole.SYSTEM, content="You are a helpful AI assistant specialized in discussing novel episodes."),
+                LLMMessage(role=LLMRole.USER, content=prompt)
+            ],
+            model=config.llm.model,
             temperature=0.7,
-            max_tokens=1000,
-            mode=ResponseMode.SINGLE
+            max_tokens=1000
         )
         
-        response_result = await response_generator.generate_async(llm_request)
-        ai_response = response_result.response
+        response_result = await llm_manager.generate_async(llm_request)
+        ai_response = response_result.content
         
         # Calculate episode relevance score
         episode_relevance_score = 0.0
@@ -1019,7 +1099,7 @@ Maintain character consistency and timeline awareness when referencing episode c
 @router.post("/chat", response_model=EpisodeChatResponse)
 async def episode_chat(
     request: EpisodeChatRequest,
-    current_user: MockUser = Depends(get_current_user),
+    current_user: SimpleUser = Depends(get_current_user),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ) -> EpisodeChatResponse:
     """
@@ -1163,7 +1243,7 @@ async def episode_chat(
 async def episode_specific_chat(
     episode_id: int,
     request: EpisodeChatRequest,
-    current_user: MockUser = Depends(get_current_user),
+    current_user: SimpleUser = Depends(get_current_user),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ) -> EpisodeChatResponse:
     """
@@ -1182,7 +1262,7 @@ async def episode_specific_chat(
 async def novel_specific_chat(
     novel_id: int,
     request: EpisodeChatRequest,
-    current_user: MockUser = Depends(get_current_user),
+    current_user: SimpleUser = Depends(get_current_user),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ) -> EpisodeChatResponse:
     """
@@ -1197,8 +1277,156 @@ async def novel_specific_chat(
     return await episode_chat(request, current_user, background_tasks)
 
 
+@router.post("/chat/stream")
+async def episode_chat_stream(
+    request: EpisodeChatRequest,
+    current_user: SimpleUser = Depends(get_current_user),
+    rag_manager: EpisodeRAGManager = Depends(get_rag_manager)
+) -> StreamingResponse:
+    """
+    Episode-aware streaming chat endpoint.
+    
+    This endpoint provides real-time streaming responses for episode discussions.
+    The response is sent as Server-Sent Events (SSE) format.
+    """
+    
+    async def generate_stream() -> AsyncIterator[str]:
+        try:
+            # Initialize configuration
+            config = get_config()
+            
+            # Step 1: Perform episode vector search (with default values)
+            search_result = await rag_manager.search_episodes(
+                query=request.message,
+                limit=5,  # Default value
+                episode_ids=request.episode_ids,
+                novel_ids=request.novel_ids
+            )
+            
+            # Extract episode sources from search result
+            episode_sources = search_result.hits if hasattr(search_result, 'hits') else []
+            
+            search_metadata = {
+                "episodes_found": len(episode_sources),
+                "query_used": request.message
+            }
+            
+            # Send search results first
+            # Convert episode sources to dict
+            episode_sources_data = []
+            for source in episode_sources:
+                source_dict = {
+                    "episode_id": source.episode_id,
+                    "episode_number": source.episode_number, 
+                    "episode_title": source.episode_title,
+                    "content": source.content,
+                    "similarity_score": source.similarity_score,
+                    "distance": source.distance
+                }
+                episode_sources_data.append(source_dict)
+            
+            search_response = {
+                "type": "search_complete",
+                "episode_sources": episode_sources_data,
+                "metadata": search_metadata
+            }
+            yield f"data: {json.dumps(search_response)}\n\n"
+            
+            # Step 2: Prepare context and prompt
+            if episode_sources:
+                # Build episode context
+                context_parts = []
+                for i, source in enumerate(episode_sources[:5], 1):
+                    context_parts.append(f"""Episode {source.episode_number}: {source.episode_title}
+{source.content}""")
+                
+                context_text = "\n\n".join(context_parts)
+                
+                # Create prompt
+                prompt = f"""Based on the following episode content, please answer this question: {request.message}
 
+Episode Context:
+{context_text}
 
+Provide a helpful and contextually relevant answer based on the episode information."""
+                
+                # Step 3: Create LLM manager and stream response
+                config = get_config()
+                
+                # Create LLM manager with proper provider configuration
+                provider_configs = []
+                if config.llm.provider == "ollama":
+                    provider_config = ProviderConfig(
+                        provider=LLMProvider.OLLAMA,
+                        config=LLMConfig(
+                            provider=LLMProvider.OLLAMA,
+                            model=config.llm.model,
+                            temperature=request.temperature,
+                            max_tokens=request.max_tokens,
+                            enable_streaming=True,
+                            base_url=config.llm.base_url
+                        )
+                    )
+                    provider_configs.append(provider_config)
+                
+                llm_manager = create_llm_manager(provider_configs)
+                
+                # Create streaming request with default values
+                llm_request = LLMRequest(
+                    messages=[
+                        LLMMessage(role=LLMRole.SYSTEM, content="You are a helpful AI assistant specialized in discussing novel episodes."),
+                        LLMMessage(role=LLMRole.USER, content=prompt)
+                    ],
+                    model=config.llm.model,
+                    temperature=0.3,  # Lower temperature for more focused responses
+                    max_tokens=1000,  # Default max tokens
+                    stream=True  # Enable streaming
+                )
+                
+                # Stream LLM response
+                async for chunk in llm_manager.providers[LLMProvider.OLLAMA].generate_stream_async(llm_request):
+                    if chunk.content:
+                        chunk_data = {
+                            "type": "content",
+                            "content": chunk.content,
+                            "finish_reason": chunk.finish_reason
+                        }
+                        yield f"data: {json.dumps(chunk_data)}\n\n"
+                    
+                    # Send usage data if available
+                    if chunk.finish_reason == "stop" and chunk.usage:
+                        usage_data = {
+                            "type": "usage",
+                            "usage": chunk.usage.to_dict()
+                        }
+                        yield f"data: {json.dumps(usage_data)}\n\n"
+            else:
+                # No relevant episodes found
+                no_results = {
+                    "type": "no_results",
+                    "message": "I couldn't find any relevant episodes to answer your question."
+                }
+                yield f"data: {json.dumps(no_results)}\n\n"
+            
+            # Send completion signal
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            
+        except Exception as e:
+            error_data = {
+                "type": "error",
+                "error": str(e)
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
 
 
 # New API endpoints for enhanced functionality
@@ -1235,7 +1463,7 @@ class ProcessAllResponse(BaseAPISchema):
 async def process_all_episodes(
     request: ProcessAllRequest,
     background_tasks: BackgroundTasks,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> ProcessAllResponse:
     """
     Process specific episodes using improved chunking logic.
@@ -1338,7 +1566,7 @@ async def process_all_episodes(
 @router.get("/novel/{novel_id}/status", response_model=ProcessingStatusResponse)
 async def get_novel_processing_status(
     novel_id: int,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> ProcessingStatusResponse:
     """
     Get processing status for a specific novel.
@@ -1596,7 +1824,7 @@ class FailedEpisodesResponse(BaseAPISchema):
 
 @router.get("/stats", response_model=ProcessingStatsResponse)
 async def get_processing_statistics(
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> ProcessingStatsResponse:
     """
     Get comprehensive processing statistics and success rates.
@@ -1725,7 +1953,7 @@ async def get_processing_statistics(
 async def get_failed_episodes(
     limit: int = 50,
     novel_id: Optional[int] = None,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> FailedEpisodesResponse:
     """
     Get list of episodes that failed processing.

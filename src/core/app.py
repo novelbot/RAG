@@ -232,6 +232,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
     
+    # Add static files serving
+    from fastapi.staticfiles import StaticFiles
+    from pathlib import Path
+    static_path = Path(__file__).parent.parent.parent / "static"
+    if static_path.exists():
+        app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+    
     # Add middleware
     add_middleware(app, config)
     
@@ -305,9 +312,13 @@ def add_exception_handlers(app: FastAPI):
 def register_routes(app: FastAPI):
     """Register all API routes"""
     from ..api.routes import api_router
+    from ..api.routes.test_ui import router as test_ui_router
     
     # Register main API router
     app.include_router(api_router)
+    
+    # Register test UI router
+    app.include_router(test_ui_router)
     
     @app.get("/health")
     async def health_check():

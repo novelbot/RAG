@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Episode Chat Streaming Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.css" rel="stylesheet">
+    <style>
+        .stream-output {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 200px;
+            max-height: 600px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .episode-card {
+            margin-bottom: 15px;
+            border-left: 4px solid #007bff;
+            transition: transform 0.2s;
+        }
+        .episode-card:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .metadata-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            margin: 2px;
+            background-color: #e7f3ff;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+        .streaming-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background-color: #28a745;
+            border-radius: 50%;
+            margin-left: 10px;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .error-message {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .search-results {
+            margin-top: 20px;
+        }
+        .similarity-score {
+            background: linear-gradient(90deg, #28a745 0%, #ffc107 50%, #dc3545 100%);
+            height: 5px;
+            border-radius: 3px;
+            margin-top: 5px;
+        }
+        .similarity-indicator {
+            height: 100%;
+            background-color: #007bff;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">🔄 Episode Chat Streaming Test</h1>
+        
+        <!-- Login Section -->
+        <div class="card mb-4" id="loginSection">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">🔐 Authentication</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <input type="text" id="username" class="form-control" placeholder="Username" value="admin">
+                    </div>
+                    <div class="col-md-4">
+                        <input type="password" id="password" class="form-control" placeholder="Password" value="admin123">
+                    </div>
+                    <div class="col-md-4">
+                        <button onclick="login()" class="btn btn-primary w-100">Login</button>
+                    </div>
+                </div>
+                <div id="loginStatus" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Query Section -->
+        <div class="card mb-4" id="querySection" style="display: none;">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">💬 Episode Chat Query</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="message" class="form-label">Message/Question:</label>
+                    <textarea id="message" class="form-control" rows="3" placeholder="예: 이 작품의 주인공이 누구입니까?">이 작품의 주인공이 누구입니까?</textarea>
+                </div>
+                
+                <!-- Advanced Options -->
+                <div class="accordion mb-3" id="advancedOptions">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOptions">
+                                ⚙️ Advanced Options
+                            </button>
+                        </h2>
+                        <div id="collapseOptions" class="accordion-collapse collapse" data-bs-parent="#advancedOptions">
+                            <div class="accordion-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Novel IDs (comma-separated):</label>
+                                        <input type="text" id="novelIds" class="form-control" placeholder="1,2,3" value="1">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Episode IDs (comma-separated):</label>
+                                        <input type="text" id="episodeIds" class="form-control" placeholder="1,2,3">
+                                    </div>
+                                </div>
+                                <div class="row mt-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Temperature:</label>
+                                        <input type="number" id="temperature" class="form-control" min="0" max="2" step="0.1" value="0.7">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Max Tokens:</label>
+                                        <input type="number" id="maxTokens" class="form-control" min="100" max="8000" value="2000">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Max Episodes:</label>
+                                        <input type="number" id="maxEpisodes" class="form-control" min="1" max="20" value="5">
+                                    </div>
+                                </div>
+                                <div class="row mt-3">
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="includeMetadata" checked>
+                                            <label class="form-check-label" for="includeMetadata">
+                                                Include Episode Metadata
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="includeSources" checked>
+                                            <label class="form-check-label" for="includeSources">
+                                                Include Sources
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="useContext" checked>
+                                            <label class="form-check-label" for="useContext">
+                                                Use Conversation Context
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <button onclick="startStreaming()" class="btn btn-success w-100" id="streamButton">
+                    🚀 Start Streaming
+                </button>
+            </div>
+        </div>
+
+        <!-- Response Section -->
+        <div class="card mb-4" id="responseSection" style="display: none;">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    📝 Streaming Response
+                    <span id="streamingIndicator" class="streaming-indicator" style="display: none;"></span>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="streamOutput" class="stream-output"></div>
+                <div id="errorOutput"></div>
+                
+                <!-- Search Results -->
+                <div id="searchResults" class="search-results" style="display: none;">
+                    <h5 class="mb-3">🔍 Episode Sources</h5>
+                    <div id="episodeSources"></div>
+                </div>
+                
+                <!-- Metadata -->
+                <div id="metadataSection" class="mt-4" style="display: none;">
+                    <h5 class="mb-3">📊 Metadata</h5>
+                    <div id="metadataContent"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw Data Section -->
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">🔧 Raw SSE Data</h5>
+            </div>
+            <div class="card-body">
+                <pre id="rawOutput" class="bg-dark text-light p-3" style="max-height: 300px; overflow-y: auto;"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script>
+        let authToken = null;
+        let eventSource = null;
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const statusDiv = document.getElementById('loginStatus');
+            
+            try {
+                const response = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.access_token;
+                    statusDiv.innerHTML = '<div class="alert alert-success">✅ Login successful!</div>';
+                    document.getElementById('querySection').style.display = 'block';
+                    document.getElementById('responseSection').style.display = 'block';
+                } else {
+                    const error = await response.json();
+                    statusDiv.innerHTML = `<div class="alert alert-danger">❌ Login failed: ${error.detail || 'Invalid credentials'}</div>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="alert alert-danger">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function startStreaming() {
+            if (!authToken) {
+                alert('Please login first!');
+                return;
+            }
+            
+            // Clear previous outputs
+            document.getElementById('streamOutput').textContent = '';
+            document.getElementById('rawOutput').textContent = '';
+            document.getElementById('errorOutput').innerHTML = '';
+            document.getElementById('searchResults').style.display = 'none';
+            document.getElementById('metadataSection').style.display = 'none';
+            
+            // Show streaming indicator
+            document.getElementById('streamingIndicator').style.display = 'inline-block';
+            
+            // Disable button
+            const button = document.getElementById('streamButton');
+            button.disabled = true;
+            button.textContent = '⏳ Streaming...';
+            
+            // Prepare request data
+            const requestData = {
+                message: document.getElementById('message').value,
+                temperature: parseFloat(document.getElementById('temperature').value),
+                max_tokens: parseInt(document.getElementById('maxTokens').value),
+                max_episodes: parseInt(document.getElementById('maxEpisodes').value),
+                include_episode_metadata: document.getElementById('includeMetadata').checked,
+                include_sources: document.getElementById('includeSources').checked,
+                use_conversation_context: document.getElementById('useContext').checked
+            };
+            
+            // Add optional fields
+            const novelIds = document.getElementById('novelIds').value;
+            if (novelIds) {
+                requestData.novel_ids = novelIds.split(',').map(id => parseInt(id.trim()));
+            }
+            
+            const episodeIds = document.getElementById('episodeIds').value;
+            if (episodeIds) {
+                requestData.episode_ids = episodeIds.split(',').map(id => parseInt(id.trim()));
+            }
+            
+            try {
+                const response = await fetch('/api/v1/episode/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            handleStreamData(data);
+                        }
+                    }
+                }
+            } catch (error) {
+                document.getElementById('errorOutput').innerHTML = 
+                    `<div class="error-message">❌ Error: ${error.message}</div>`;
+            } finally {
+                // Hide streaming indicator
+                document.getElementById('streamingIndicator').style.display = 'none';
+                
+                // Re-enable button
+                button.disabled = false;
+                button.textContent = '🚀 Start Streaming';
+            }
+        }
+
+        function handleStreamData(data) {
+            // Add to raw output
+            const rawOutput = document.getElementById('rawOutput');
+            rawOutput.textContent += data + '\n\n';
+            rawOutput.scrollTop = rawOutput.scrollHeight;
+            
+            try {
+                const parsed = JSON.parse(data);
+                
+                switch (parsed.type) {
+                    case 'search_complete':
+                        displaySearchResults(parsed);
+                        break;
+                    case 'content':  // Changed from 'token' to 'content'
+                        appendToken(parsed.content);
+                        break;
+                    case 'usage':  // Handle usage statistics
+                        displayUsage(parsed.usage);
+                        break;
+                    case 'done':  // Handle stream completion
+                        displayComplete(parsed);
+                        break;
+                    case 'error':
+                        displayError(parsed.error);
+                        break;
+                    case 'metadata':
+                        displayMetadata(parsed);
+                        break;
+                }
+            } catch (e) {
+                console.error('Failed to parse SSE data:', e);
+            }
+        }
+
+        function displaySearchResults(data) {
+            const searchDiv = document.getElementById('searchResults');
+            const sourcesDiv = document.getElementById('episodeSources');
+            
+            if (data.episode_sources && data.episode_sources.length > 0) {
+                searchDiv.style.display = 'block';
+                sourcesDiv.innerHTML = '';
+                
+                data.episode_sources.forEach((episode, index) => {
+                    const scorePercent = (episode.similarity_score * 100).toFixed(1);
+                    const card = `
+                        <div class="card episode-card">
+                            <div class="card-body">
+                                <h6 class="card-title">
+                                    📖 Episode ${episode.episode_number}: ${episode.episode_title}
+                                </h6>
+                                <p class="card-text small">${episode.content.substring(0, 200)}...</p>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="metadata-badge">ID: ${episode.episode_id}</span>
+                                    <span class="metadata-badge">Similarity: ${scorePercent}%</span>
+                                </div>
+                                <div class="similarity-score mt-2">
+                                    <div class="similarity-indicator" style="width: ${scorePercent}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    sourcesDiv.innerHTML += card;
+                });
+            }
+            
+            if (data.metadata) {
+                const metaDiv = document.getElementById('metadataSection');
+                const metaContent = document.getElementById('metadataContent');
+                metaDiv.style.display = 'block';
+                
+                metaContent.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <span class="metadata-badge">Episodes Found: ${data.metadata.episodes_found || 0}</span>
+                            <span class="metadata-badge">Query: ${data.metadata.query_used || 'N/A'}</span>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function appendToken(token) {
+            const output = document.getElementById('streamOutput');
+            output.textContent += token;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function displayUsage(usage) {
+            if (usage) {
+                const output = document.getElementById('streamOutput');
+                const usageDiv = document.createElement('div');
+                usageDiv.className = 'mt-3 p-2 bg-light border rounded';
+                usageDiv.innerHTML = `
+                    <strong>Token Usage:</strong>
+                    <span class="metadata-badge">Prompt: ${usage.prompt_tokens || 0}</span>
+                    <span class="metadata-badge">Completion: ${usage.completion_tokens || 0}</span>
+                    <span class="metadata-badge">Total: ${usage.total_tokens || 0}</span>
+                `;
+                output.appendChild(usageDiv);
+            }
+        }
+        
+        function displayComplete(data) {
+            const output = document.getElementById('streamOutput');
+            const completeDiv = document.createElement('div');
+            completeDiv.className = 'alert alert-success mt-3';
+            completeDiv.innerHTML = '✅ Streaming completed!';
+            output.appendChild(completeDiv);
+            
+            if (data.response_time) {
+                const timeDiv = document.createElement('div');
+                timeDiv.className = 'mt-2';
+                timeDiv.innerHTML = `<span class="metadata-badge">Response Time: ${data.response_time || 0}ms</span>`;
+                output.appendChild(timeDiv);
+            }
+        }
+
+        function displayError(error) {
+            document.getElementById('errorOutput').innerHTML = 
+                `<div class="error-message">❌ Stream Error: ${error}</div>`;
+        }
+
+        function displayMetadata(data) {
+            const metaDiv = document.getElementById('metadataSection');
+            const metaContent = document.getElementById('metadataContent');
+            metaDiv.style.display = 'block';
+            
+            metaContent.innerHTML += `
+                <div class="mt-2">
+                    <pre class="bg-light p-2">${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            `;
+        }
+
+        // Auto-login on page load for convenience
+        window.addEventListener('load', () => {
+            // Uncomment to auto-login
+            // login();
+        });
+    </script>
+</body>
+</html>

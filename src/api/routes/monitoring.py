@@ -10,7 +10,7 @@ import time
 import logging
 from datetime import datetime, timezone, timedelta
 
-from ...auth.dependencies import get_current_user, MockUser
+from ...auth.dependencies import get_current_user, SimpleUser
 from ...embedding.types import EmbeddingProvider
 
 logger = logging.getLogger(__name__)

@@ -490,6 +490,10 @@ class EpisodeChatRequest(BaseAPISchema):
     
     # Episode-specific options
     include_episode_metadata: bool = Field(True, description="Whether to include episode metadata (characters, timeline)")
+    
+    # LLM parameters
+    temperature: Optional[float] = Field(default=0.7, ge=0.0, le=2.0, description="LLM temperature for response generation")
+    max_tokens: Optional[int] = Field(default=2000, ge=1, le=8192, description="Maximum tokens for response")
     episode_sort_order: Literal["episode_number", "similarity", "publication_date"] = Field("episode_number", description="How to sort episode results")
     
     # Response preferences

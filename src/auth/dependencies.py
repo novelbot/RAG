@@ -4,10 +4,10 @@ Authentication dependencies for FastAPI routes.
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
-from typing import Dict, Any
-import asyncio
+from typing import Dict, Any, Optional
+import sqlite3
+from pathlib import Path
 
-# from .models import User  # Commented out to avoid import issues
 from .schemas import UserResponse
 from .jwt_manager import JWTManager
 from .exceptions import TokenExpiredError, InvalidTokenError, TokenBlacklistedError
@@ -16,17 +16,34 @@ security = HTTPBearer()
 jwt_manager = JWTManager()
 
 
-class MockUser:
-    """Mock user class for development"""
-    def __init__(self, id: str, username: str, email: str, roles: list):
-        self.id = id
+# Simple User class for SQLite auth
+class SimpleUser:
+    """Simple user class for SQLite authentication without SQLAlchemy complexity."""
+    
+    def __init__(self, user_id: int, username: str, email: str, role: str, is_active: bool = True):
+        self.id = user_id
         self.username = username
         self.email = email
-        self.roles = roles
-        self.is_active = True
+        self.is_active = is_active
+        self.is_superuser = (role == 'admin')
+        self.is_verified = True
+        self.full_name = username
+        self.hashed_password = ""
+        self._role_name = role
+        self.roles = []
+        
+    def has_role(self, role_name: str) -> bool:
+        """Check if user has a specific role."""
+        return self._role_name == role_name
+    
+    def is_locked(self) -> bool:
+        """Check if user is locked (always False for SQLite users)."""
+        return False
 
 
-async def get_current_user(token: str = Depends(security)) -> MockUser:
+async def get_current_user(
+    token: str = Depends(security)
+) -> SimpleUser:
     """
     Get current authenticated user from JWT token.
     
@@ -34,7 +51,7 @@ async def get_current_user(token: str = Depends(security)) -> MockUser:
         token: JWT token from Authorization header
         
     Returns:
-        User: Current authenticated user
+        SimpleUser: Current authenticated user
         
     Raises:
         HTTPException: 401 if token is invalid
@@ -43,44 +60,61 @@ async def get_current_user(token: str = Depends(security)) -> MockUser:
     try:
         token_payload = jwt_manager.validate_token(token.credentials, token_type="access")
         
-        return MockUser(
-            id=str(token_payload.user_id),
-            username=token_payload.username,
-            email=token_payload.email,
-            roles=token_payload.roles if token_payload.roles else ["user"]
-        )
+        # SQLite auth.db에서 사용자 조회
+        auth_db_path = Path("auth.db")
+        with sqlite3.connect(auth_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT id, username, email, role, is_active FROM users WHERE id = ?",
+                (token_payload.user_id,)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            # Create SimpleUser object
+            user = SimpleUser(
+                user_id=row['id'],
+                username=row['username'],
+                email=row['email'],
+                role=row['role'],
+                is_active=bool(row['is_active'])
+            )
+            
+            if not user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Inactive user",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            return user
         
-    except (TokenExpiredError, InvalidTokenError, TokenBlacklistedError):
-        # JWT Manager validation failed
-        pass
-    except Exception:
-        # Unexpected error
-        pass
-    
-    # Development mock tokens (remove in production)
-    if token.credentials == "demo_access_token":
-        return MockUser(
-            id="demo_user_id",
-            username="demo",
-            email="demo@example.com",
-            roles=["user"]
+    except (TokenExpiredError, InvalidTokenError, TokenBlacklistedError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    elif token.credentials == "admin_token":
-        return MockUser(
-            id="admin_user_id", 
-            username="admin",
-            email="admin@example.com",
-            roles=["admin", "user"]
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"DEBUG: Exception in get_current_user: {e}")
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authentication token: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid authentication token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
 
 
-async def get_current_active_user(current_user: MockUser = Depends(get_current_user)) -> MockUser:
+async def get_current_active_user(current_user: SimpleUser = Depends(get_current_user)) -> SimpleUser:
     """
     Get current active user.
     
@@ -88,7 +122,7 @@ async def get_current_active_user(current_user: MockUser = Depends(get_current_u
         current_user: Current user from get_current_user
         
     Returns:
-        User: Current active user
+        SimpleUser: Current active user
         
     Raises:
         HTTPException: 400 if user is inactive
@@ -101,7 +135,7 @@ async def get_current_active_user(current_user: MockUser = Depends(get_current_u
     return current_user
 
 
-async def get_admin_user(current_user: MockUser = Depends(get_current_user)) -> MockUser:
+async def get_admin_user(current_user: SimpleUser = Depends(get_current_user)) -> SimpleUser:
     """
     Get current user with admin role.
     
@@ -109,12 +143,12 @@ async def get_admin_user(current_user: MockUser = Depends(get_current_user)) -> 
         current_user: Current user from get_current_user
         
     Returns:
-        User: Current admin user
+        SimpleUser: Current admin user
         
     Raises:
         HTTPException: 403 if user doesn't have admin role
     """
-    if "admin" not in current_user.roles:
+    if not current_user.has_role("admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required"

@@ -44,6 +44,7 @@ class OllamaProvider(BaseLLMProvider):
         """Initialize Ollama sync and async clients."""
         client_kwargs: Dict[str, Any] = {
             "host": self.config.base_url or "http://localhost:11434",
+            "timeout": 120,  # 120 seconds timeout for better model loading
         }
         
         if self.config.custom_headers:
@@ -241,8 +242,9 @@ class OllamaProvider(BaseLLMProvider):
             if options:
                 params["options"] = options
             
-            # Make streaming API call
-            async for chunk in self._async_client.chat(**params):
+            # Make streaming API call - await chat method which returns an async generator
+            stream = await self._async_client.chat(**params)
+            async for chunk in stream:
                 if chunk.get("message", {}).get("content"):
                     yield LLMStreamChunk(
                         content=chunk["message"]["content"],

@@ -19,7 +19,7 @@ from langchain_community.embeddings import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Local imports
-from ...auth.dependencies import get_current_user, MockUser
+from ...auth.dependencies import get_current_user, SimpleUser
 from ..schemas import (
     EpisodeChatRequest, EpisodeChatResponse, EpisodeChatConversation,
     EpisodeChatError, EpisodeSource, ChatMessage
@@ -208,7 +208,7 @@ class LangChainEpisodeRAGService:
     async def process_episode_query(
         self,
         request: EpisodeChatRequest,
-        user: MockUser
+        user: SimpleUser
     ) -> EpisodeChatResponse:
         """
         Process episode query using LangChain RAG.
@@ -375,7 +375,7 @@ rag_service = LangChainEpisodeRAGService()
 async def chat_with_episodes(
     request: EpisodeChatRequest,
     background_tasks: BackgroundTasks,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> EpisodeChatResponse:
     """
     Chat with episode content using LangChain RAG.
@@ -410,7 +410,7 @@ async def ingest_episode(
     episode_id: int,
     content: str,
     metadata: Optional[Dict[str, Any]] = None,
-    current_user: MockUser = Depends(get_current_user)
+    current_user: SimpleUser = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
     Ingest episode content into the LangChain vector store.
