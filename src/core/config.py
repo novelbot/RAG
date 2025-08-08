@@ -74,6 +74,7 @@ class LLMConfig(BaseModel):
     timeout: Optional[float] = 60.0
     max_retries: int = 3
     custom_headers: Optional[Dict[str, str]] = None
+    stream: bool = True  # Add streaming support
     
     @field_validator('provider')
     @classmethod

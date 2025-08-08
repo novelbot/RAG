@@ -496,6 +496,11 @@ class EpisodeChatRequest(BaseAPISchema):
     max_tokens: Optional[int] = Field(default=2000, ge=1, le=8192, description="Maximum tokens for response")
     episode_sort_order: Literal["episode_number", "similarity", "publication_date"] = Field("episode_number", description="How to sort episode results")
     
+    # LLM provider override options (for testing)
+    llm_provider: Optional[str] = Field(None, description="Override LLM provider (openai, gemini, claude, ollama)")
+    llm_model: Optional[str] = Field(None, description="Override LLM model name")
+    llm_api_key: Optional[str] = Field(None, description="Override API key for LLM provider")
+    
     # Response preferences
     include_sources: bool = Field(True, description="Whether to include source episodes in response")
     response_format: Literal["detailed", "concise"] = Field("detailed", description="Preferred response format")

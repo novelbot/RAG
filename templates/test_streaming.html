@@ -122,6 +122,27 @@
                         <div id="collapseOptions" class="accordion-collapse collapse" data-bs-parent="#advancedOptions">
                             <div class="accordion-body">
                                 <div class="row">
+                                    <div class="col-md-4">
+                                        <label class="form-label">LLM Provider:</label>
+                                        <select id="llmProvider" class="form-control" onchange="updateModelOptions()">
+                                            <option value="default">Default (from config)</option>
+                                            <option value="openai">OpenAI</option>
+                                            <option value="gemini">Google Gemini</option>
+                                            <option value="claude">Anthropic Claude</option>
+                                            <option value="ollama">Ollama (Local)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Model:</label>
+                                        <input type="text" id="modelName" class="form-control" placeholder="Auto-detect from config" disabled>
+                                        <small class="text-muted">Leave empty to use default model</small>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">API Key (optional):</label>
+                                        <input type="password" id="apiKey" class="form-control" placeholder="Uses server config if empty" disabled>
+                                    </div>
+                                </div>
+                                <div class="row mt-3">
                                     <div class="col-md-6">
                                         <label class="form-label">Novel IDs (comma-separated):</label>
                                         <input type="text" id="novelIds" class="form-control" placeholder="1,2,3" value="1">
@@ -252,6 +273,41 @@
         let eventSource = null;
         let currentConversationId = null;
 
+        // Model presets for different providers
+        const modelPresets = {
+            openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+            gemini: ['gemini-pro', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+            claude: ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
+            ollama: ['llama3.2', 'gemma2', 'mistral', 'qwen2.5']
+        };
+
+        function updateModelOptions() {
+            const provider = document.getElementById('llmProvider').value;
+            const modelInput = document.getElementById('modelName');
+            const apiKeyInput = document.getElementById('apiKey');
+            
+            if (provider === 'default') {
+                modelInput.disabled = true;
+                apiKeyInput.disabled = true;
+                modelInput.value = '';
+                apiKeyInput.value = '';
+                modelInput.placeholder = 'Auto-detect from config';
+            } else {
+                modelInput.disabled = false;
+                apiKeyInput.disabled = provider === 'ollama' ? true : false;
+                
+                // Set suggested models based on provider
+                if (modelPresets[provider]) {
+                    const suggestions = modelPresets[provider];
+                    modelInput.placeholder = `e.g., ${suggestions[0]}`;
+                    // Optionally set a default model
+                    if (!modelInput.value) {
+                        modelInput.value = suggestions[0];
+                    }
+                }
+            }
+        }
+
         async function login() {
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
@@ -313,6 +369,20 @@
                 use_conversation_context: document.getElementById('useContext').checked,
                 max_context_turns: parseInt(document.getElementById('maxContextTurns').value)
             };
+            
+            // Add provider configuration if not default
+            const provider = document.getElementById('llmProvider').value;
+            if (provider !== 'default') {
+                requestData.llm_provider = provider;
+                const modelName = document.getElementById('modelName').value;
+                if (modelName) {
+                    requestData.llm_model = modelName;
+                }
+                const apiKey = document.getElementById('apiKey').value;
+                if (apiKey) {
+                    requestData.llm_api_key = apiKey;
+                }
+            }
             
             // Add conversation ID if provided or use existing one
             const conversationIdInput = document.getElementById('conversationId').value.trim();

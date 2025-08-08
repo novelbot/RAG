@@ -8,7 +8,7 @@ with load balancing, failover support, and backward compatibility.
 import asyncio
 import time
 import random
-from typing import Dict, List, Any, Optional, Union, AsyncIterator
+from typing import Dict, List, Any, Optional, Union, AsyncIterator, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timezone
@@ -94,6 +94,11 @@ class LangChainProviderAdapter(BaseLLMProvider):
         """Initialize adapter with LangChain model."""
         super().__init__(config)
         self.langchain_model = langchain_model
+        self._initialize_clients()
+    
+    def _initialize_clients(self) -> None:
+        """Initialize sync and async clients - handled by LangChain model."""
+        pass  # LangChain models handle their own client initialization
     
     async def generate_async(self, request: LLMRequest) -> LLMResponse:
         """Generate response using LangChain model."""
@@ -145,7 +150,6 @@ class LangChainProviderAdapter(BaseLLMProvider):
             async for chunk in self.langchain_model.astream(langchain_messages):
                 yield LLMStreamChunk(
                     content=chunk.content,
-                    delta=chunk.content,
                     finish_reason=None
                 )
                 
@@ -164,6 +168,75 @@ class LangChainProviderAdapter(BaseLLMProvider):
             elif msg.role == LLMRole.ASSISTANT:
                 langchain_messages.append(AIMessage(content=msg.content))
         return langchain_messages
+    
+    def generate_stream(self, request: LLMRequest):
+        """Generate streaming response synchronously."""
+        # For synchronous streaming, we'll need to use threading to bridge async
+        import asyncio
+        import threading
+        from queue import Queue
+        
+        q = Queue()
+        
+        def run_async():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async def _stream():
+                try:
+                    async for chunk in self.stream_async(request):
+                        q.put(chunk)
+                except Exception as e:
+                    q.put(e)
+                finally:
+                    q.put(None)
+            
+            loop.run_until_complete(_stream())
+            loop.close()
+        
+        thread = threading.Thread(target=run_async)
+        thread.start()
+        
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+        
+        thread.join()
+    
+    async def generate_stream_async(self, request: LLMRequest) -> AsyncIterator[LLMStreamChunk]:
+        """Generate streaming response asynchronously - alias for stream_async."""
+        async for chunk in self.stream_async(request):
+            yield chunk
+    
+    async def count_tokens_async(self, messages: List[LLMMessage], model: str) -> int:
+        """Count tokens in messages asynchronously."""
+        # Simple token estimation for LangChain models
+        total_text = " ".join([msg.content for msg in messages])
+        return int(len(total_text.split()) * 1.3)  # Rough estimate
+    
+    def count_tokens(self, messages: List[LLMMessage], model: str) -> int:
+        """Count tokens in messages synchronously."""
+        # Simple token estimation for LangChain models
+        total_text = " ".join([msg.content for msg in messages])
+        return int(len(total_text.split()) * 1.3)  # Rough estimate
+    
+    def get_available_models(self) -> List[str]:
+        """Get list of available models."""
+        # Return the configured model
+        return [self.config.model]
+    
+    def validate_config(self) -> Dict[str, Any]:
+        """Validate provider configuration."""
+        return {
+            "valid": True,
+            "provider": self.config.provider,
+            "model": self.config.model,
+            "has_api_key": bool(self.config.api_key)
+        }
 
 
 class LangChainLLMManager(LoggerMixin):
@@ -206,7 +279,7 @@ class LangChainLLMManager(LoggerMixin):
                     max_tokens=config.max_tokens,
                     api_key=config.api_key,
                     base_url=config.base_url,
-                    streaming=config.stream
+                    streaming=getattr(config, 'stream', True)  # Default to True if not present
                 )
                 self.providers[provider] = LangChainProviderAdapter(langchain_model, config)
                 
@@ -216,7 +289,7 @@ class LangChainLLMManager(LoggerMixin):
                     temperature=config.temperature,
                     max_output_tokens=config.max_tokens,
                     google_api_key=config.api_key,
-                    streaming=config.stream
+                    streaming=getattr(config, 'stream', True)  # Default to True if not present
                 )
                 self.providers[provider] = LangChainProviderAdapter(langchain_model, config)
                 
@@ -226,7 +299,7 @@ class LangChainLLMManager(LoggerMixin):
                     temperature=config.temperature,
                     max_tokens=config.max_tokens,
                     api_key=config.api_key,
-                    streaming=config.stream
+                    streaming=getattr(config, 'stream', True)  # Default to True if not present
                 )
                 self.providers[provider] = LangChainProviderAdapter(langchain_model, config)
                 

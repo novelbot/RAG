@@ -545,19 +545,34 @@ async def ask_about_episodes(
             
             # Create LLM manager with proper provider configuration
             provider_configs = []
-            if config.llm.provider == "ollama":
-                provider_config = ProviderConfig(
-                    provider=LLMProvider.OLLAMA,
-                    config=LLMConfig(
-                        provider=LLMProvider.OLLAMA,
-                        model=config.llm.model,
-                        temperature=config.llm.temperature,
-                        max_tokens=config.llm.max_tokens,
-                        enable_streaming=False,
-                        base_url=config.llm.base_url
-                    )
+            
+            # Map string provider to LLMProvider enum
+            provider_map = {
+                "ollama": LLMProvider.OLLAMA,
+                "openai": LLMProvider.OPENAI,
+                "gemini": LLMProvider.GEMINI,
+                "google": LLMProvider.GEMINI,
+                "claude": LLMProvider.CLAUDE,
+                "anthropic": LLMProvider.CLAUDE
+            }
+            
+            provider_enum = provider_map.get(config.llm.provider.lower())
+            if not provider_enum:
+                raise ValueError(f"Unsupported provider: {config.llm.provider}")
+            
+            provider_config = ProviderConfig(
+                provider=provider_enum,
+                config=LLMConfig(
+                    provider=config.llm.provider,
+                    model=config.llm.model,
+                    api_key=config.llm.api_key,
+                    temperature=config.llm.temperature,
+                    max_tokens=config.llm.max_tokens,
+                    base_url=config.llm.base_url
+                    # Removed stream parameter as it's not valid for LLMConfig
                 )
-                provider_configs.append(provider_config)
+            )
+            provider_configs.append(provider_config)
             
             llm_manager = create_llm_manager(provider_configs)
             
@@ -1106,19 +1121,34 @@ async def generate_episode_chat_response(
         
         # Create LLM manager with proper provider configuration
         provider_configs = []
-        if config.llm.provider == "ollama":
-            provider_config = ProviderConfig(
-                provider=LLMProvider.OLLAMA,
-                config=LLMConfig(
-                    provider=LLMProvider.OLLAMA,
-                    model=config.llm.model,
-                    temperature=config.llm.temperature,
-                    max_tokens=config.llm.max_tokens,
-                    enable_streaming=False,
-                    base_url=config.llm.base_url
-                )
+        
+        # Map string provider to LLMProvider enum
+        provider_map = {
+            "ollama": LLMProvider.OLLAMA,
+            "openai": LLMProvider.OPENAI,
+            "gemini": LLMProvider.GEMINI,
+            "google": LLMProvider.GEMINI,
+            "claude": LLMProvider.CLAUDE,
+            "anthropic": LLMProvider.CLAUDE
+        }
+        
+        provider_enum = provider_map.get(config.llm.provider.lower())
+        if not provider_enum:
+            raise ValueError(f"Unsupported provider: {config.llm.provider}")
+        
+        provider_config = ProviderConfig(
+            provider=provider_enum,
+            config=LLMConfig(
+                provider=config.llm.provider,
+                model=config.llm.model,
+                api_key=config.llm.api_key,
+                temperature=config.llm.temperature,
+                max_tokens=config.llm.max_tokens,
+                base_url=config.llm.base_url
+                # Removed stream parameter as it's not valid for LLMConfig
             )
-            provider_configs.append(provider_config)
+        )
+        provider_configs.append(provider_config)
         
         llm_manager = create_llm_manager(provider_configs)
         
@@ -1605,21 +1635,42 @@ User Question: {request.message}
                 # Step 3: Create LLM manager and stream response
                 config = get_config()
                 
+                # Use override values from request if provided, otherwise use config
+                llm_provider = request.llm_provider if request.llm_provider else config.llm.provider
+                llm_model = request.llm_model if request.llm_model else config.llm.model
+                llm_api_key = request.llm_api_key if request.llm_api_key else config.llm.api_key
+                
                 # Create LLM manager with proper provider configuration
                 provider_configs = []
-                if config.llm.provider == "ollama":
-                    provider_config = ProviderConfig(
-                        provider=LLMProvider.OLLAMA,
-                        config=LLMConfig(
-                            provider=LLMProvider.OLLAMA,
-                            model=config.llm.model,
-                            temperature=request.temperature,
-                            max_tokens=request.max_tokens,
-                            enable_streaming=True,
-                            base_url=config.llm.base_url
-                        )
+                
+                # Map string provider to LLMProvider enum
+                provider_map = {
+                    "ollama": LLMProvider.OLLAMA,
+                    "openai": LLMProvider.OPENAI,
+                    "gemini": LLMProvider.GEMINI,
+                    "google": LLMProvider.GEMINI,
+                    "claude": LLMProvider.CLAUDE,
+                    "anthropic": LLMProvider.CLAUDE
+                }
+                
+                provider_enum = provider_map.get(llm_provider.lower())
+                if not provider_enum:
+                    raise ValueError(f"Unsupported provider: {llm_provider}")
+                
+                # Create provider config for any supported provider
+                provider_config = ProviderConfig(
+                    provider=provider_enum,
+                    config=LLMConfig(
+                        provider=llm_provider,
+                        model=llm_model,
+                        api_key=llm_api_key,
+                        temperature=request.temperature if hasattr(request, 'temperature') else config.llm.temperature,
+                        max_tokens=request.max_tokens if hasattr(request, 'max_tokens') else config.llm.max_tokens,
+                        base_url=config.llm.base_url if llm_provider.lower() == "ollama" else None
+                        # Removed stream=True as it's not a valid LLMConfig parameter
                     )
-                    provider_configs.append(provider_config)
+                )
+                provider_configs.append(provider_config)
                 
                 llm_manager = create_llm_manager(provider_configs)
                 
@@ -1629,7 +1680,7 @@ User Question: {request.message}
                         LLMMessage(role=LLMRole.SYSTEM, content="You are a helpful AI assistant specialized in discussing novel episodes."),
                         LLMMessage(role=LLMRole.USER, content=prompt)
                     ],
-                    model=config.llm.model,
+                    model=llm_model,  # Use the potentially overridden model
                     temperature=request.temperature if hasattr(request, 'temperature') else 0.7,  # Use request temperature
                     max_tokens=request.max_tokens if hasattr(request, 'max_tokens') else 1000,
                     stream=True  # Enable streaming
@@ -1649,7 +1700,7 @@ User Question: {request.message}
                 
                 # Stream LLM response and collect full response
                 full_response = ""
-                async for chunk in llm_manager.providers[LLMProvider.OLLAMA].generate_stream_async(llm_request):
+                async for chunk in llm_manager.providers[provider_enum].generate_stream_async(llm_request):
                     if chunk.content:
                         full_response += chunk.content
                         chunk_data = {
