@@ -165,7 +165,8 @@ class EpisodeSearchRequest:
     
     def get_output_fields(self) -> List[str]:
         """Get list of fields to return in search results."""
-        fields = ["episode_id", "episode_number", "episode_title", "novel_id"]
+        # Always include chunk_index for proper sorting
+        fields = ["episode_id", "episode_number", "episode_title", "novel_id", "chunk_index"]
         
         if self.include_content:
             fields.append("content")

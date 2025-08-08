@@ -322,6 +322,11 @@ class EpisodeSearchEngine(LoggerMixin):
             for i, hit in enumerate(vector_result.hits[0]):  # First query results
                 try:
                     self.logger.info(f"Processing hit {i}: {hit}")
+                    # Include chunk_index in metadata - it's always returned now
+                    metadata = hit.metadata if hit.metadata else {}
+                    chunk_index = hit.entity.get("chunk_index", -1)
+                    metadata["chunk_index"] = chunk_index
+                    
                     episode_hit = EpisodeSearchHit(
                         episode_id=hit.entity.get("episode_id"),
                         episode_number=hit.entity.get("episode_number"),
@@ -332,7 +337,7 @@ class EpisodeSearchEngine(LoggerMixin):
                         content=hit.entity.get("content") if request.include_content else None,
                         publication_date=self._parse_date(hit.entity.get("publication_date")),
                         content_length=hit.entity.get("content_length"),
-                        metadata=hit.metadata
+                        metadata=metadata
                     )
                     hits.append(episode_hit)
                     self.logger.info(f"Successfully converted hit {i}")
@@ -363,7 +368,11 @@ class EpisodeSearchEngine(LoggerMixin):
     def _sort_hits(self, hits: List[EpisodeSearchHit], sort_order: EpisodeSortOrder) -> List[EpisodeSearchHit]:
         """Sort hits according to specified order."""
         if sort_order == EpisodeSortOrder.EPISODE_NUMBER:
-            return sorted(hits, key=lambda h: h.episode_number)
+            # Sort by episode number first, then by chunk index if available
+            return sorted(hits, key=lambda h: (
+                h.episode_number, 
+                h.metadata.get("chunk_index", -1) if h.metadata else -1
+            ))
         elif sort_order == EpisodeSortOrder.PUBLICATION_DATE:
             return sorted(hits, key=lambda h: h.publication_date or date.min)
         elif sort_order == EpisodeSortOrder.SIMILARITY:

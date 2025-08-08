@@ -1494,7 +1494,8 @@ async def episode_chat_stream(
                 query=enhanced_query,
                 limit=request.max_episodes if hasattr(request, 'max_episodes') else 5,
                 episode_ids=request.episode_ids,
-                novel_ids=request.novel_ids
+                novel_ids=request.novel_ids,
+                sort_by_episode_number=True  # Sort by episode number for better context flow
             )
             
             # Extract episode sources from search result
@@ -1549,7 +1550,14 @@ async def episode_chat_stream(
                 # Add episode sources
                 context_parts.append("=== EPISODE CONTENT ===")
                 for i, source in enumerate(episode_sources[:5], 1):
-                    context_parts.append(f"""Episode {source.episode_number}: {source.episode_title}
+                    # Check if this is a chunk
+                    chunk_info = ""
+                    if hasattr(source, 'metadata') and source.metadata:
+                        chunk_idx = source.metadata.get("chunk_index", -1)
+                        if chunk_idx >= 0:
+                            chunk_info = f" (Chunk {chunk_idx + 1})"
+                    
+                    context_parts.append(f"""Episode {source.episode_number}{chunk_info}: {source.episode_title}
 {source.content}
 Relevance: {source.similarity_score:.2f}""")
                 
