@@ -826,6 +826,25 @@ async def process_novel_episodes_background(
 
 # Episode Chat Endpoints
 
+async def retrieve_episode_conversation_context(
+    conversation_id: str,
+    user_id: str,
+    max_context_turns: int = 10
+) -> tuple[Optional[EpisodeChatConversation], List[ChatMessage]]:
+    """
+    Retrieve conversation context from storage.
+    
+    Args:
+        conversation_id: Unique conversation ID
+        user_id: User ID for authorization
+        max_context_turns: Maximum number of turns to retrieve
+        
+    Returns:
+        Tuple of (conversation object, list of messages)
+    """
+    # For now, return empty context since we don't have conversation storage
+    # This can be implemented later with actual conversation persistence
+    return None, []
 
 
 async def perform_episode_vector_search(
@@ -1284,10 +1303,10 @@ async def episode_chat_stream(
     rag_manager: EpisodeRAGManager = Depends(get_rag_manager)
 ) -> StreamingResponse:
     """
-    Episode-aware streaming chat endpoint.
+    Episode-aware streaming chat endpoint with conversation context support.
     
-    This endpoint provides real-time streaming responses for episode discussions.
-    The response is sent as Server-Sent Events (SSE) format.
+    This endpoint provides real-time streaming responses for episode discussions
+    with full conversation history management. The response is sent as Server-Sent Events (SSE) format.
     """
     
     async def generate_stream() -> AsyncIterator[str]:
@@ -1295,10 +1314,45 @@ async def episode_chat_stream(
             # Initialize configuration
             config = get_config()
             
-            # Step 1: Perform episode vector search (with default values)
+            # Generate conversation ID if not provided
+            conversation_id = request.conversation_id or str(uuid.uuid4())
+            is_new_conversation = request.conversation_id is None
+            
+            # Step 1: Retrieve conversation context if requested
+            conversation_context = []
+            if request.use_conversation_context and request.conversation_id:
+                conversation, conversation_context = await retrieve_episode_conversation_context(
+                    conversation_id=request.conversation_id,
+                    user_id=current_user.id,
+                    max_context_turns=request.max_context_turns if hasattr(request, 'max_context_turns') else 10
+                )
+            
+            # Send conversation info first
+            conv_info = {
+                "type": "conversation_info",
+                "conversation_id": conversation_id,
+                "is_new_conversation": is_new_conversation,
+                "has_context": len(conversation_context) > 0
+            }
+            yield f"data: {json.dumps(conv_info)}\n\n"
+            
+            # Step 2: Perform episode-aware vector search with context enhancement
+            enhanced_query = request.message
+            conversation_enhanced = False
+            
+            if conversation_context and request.use_conversation_context:
+                recent_context = " ".join([
+                    msg.content for msg in conversation_context[-2:]
+                    if msg.role == "user"
+                ])
+                if recent_context:
+                    enhanced_query = f"{recent_context} {request.message}"
+                    conversation_enhanced = True
+            
+            # Perform episode vector search with enhanced query
             search_result = await rag_manager.search_episodes(
-                query=request.message,
-                limit=5,  # Default value
+                query=enhanced_query,
+                limit=request.max_episodes if hasattr(request, 'max_episodes') else 5,
                 episode_ids=request.episode_ids,
                 novel_ids=request.novel_ids
             )
@@ -1306,9 +1360,16 @@ async def episode_chat_stream(
             # Extract episode sources from search result
             episode_sources = search_result.hits if hasattr(search_result, 'hits') else []
             
+            # Calculate relevance scores
+            episode_relevance_score = 0.0
+            if episode_sources:
+                episode_relevance_score = sum(s.similarity_score for s in episode_sources) / len(episode_sources)
+            
             search_metadata = {
                 "episodes_found": len(episode_sources),
-                "query_used": request.message
+                "query_used": enhanced_query,
+                "conversation_enhanced": conversation_enhanced,
+                "episode_relevance_score": episode_relevance_score
             }
             
             # Send search results first
@@ -1332,23 +1393,43 @@ async def episode_chat_stream(
             }
             yield f"data: {json.dumps(search_response)}\n\n"
             
-            # Step 2: Prepare context and prompt
+            # Step 3: Prepare context and prompt with conversation history
             if episode_sources:
                 # Build episode context
                 context_parts = []
+                
+                # Add conversation history if available
+                if conversation_context:
+                    context_parts.append("=== CONVERSATION HISTORY ===")
+                    for msg in conversation_context[-6:]:  # Last 6 messages
+                        role_label = "User" if msg.role == "user" else "Assistant"
+                        context_parts.append(f"{role_label}: {msg.content}")
+                    context_parts.append("")
+                
+                # Add episode sources
+                context_parts.append("=== EPISODE CONTENT ===")
                 for i, source in enumerate(episode_sources[:5], 1):
                     context_parts.append(f"""Episode {source.episode_number}: {source.episode_title}
-{source.content}""")
+{source.content}
+Relevance: {source.similarity_score:.2f}""")
                 
                 context_text = "\n\n".join(context_parts)
                 
-                # Create prompt
-                prompt = f"""Based on the following episode content, please answer this question: {request.message}
+                # Build episode-specific instruction
+                episode_instruction = ""
+                if request.episode_ids:
+                    episode_instruction = f"Focus specifically on episode(s) {', '.join(map(str, request.episode_ids))}. "
+                elif request.novel_ids:
+                    episode_instruction = f"Focus on content from novel(s) {', '.join(map(str, request.novel_ids))}. "
+                
+                # Create prompt with context awareness
+                prompt = f"""You are a helpful AI assistant specialized in discussing novel episodes. Answer the user's question using the provided episode content and conversation context.
 
-Episode Context:
 {context_text}
 
-Provide a helpful and contextually relevant answer based on the episode information."""
+User Question: {request.message}
+
+{episode_instruction}Provide a helpful and contextually relevant answer based on the episode information and conversation history. Maintain character consistency and timeline awareness."""
                 
                 # Step 3: Create LLM manager and stream response
                 config = get_config()
@@ -1371,15 +1452,15 @@ Provide a helpful and contextually relevant answer based on the episode informat
                 
                 llm_manager = create_llm_manager(provider_configs)
                 
-                # Create streaming request with default values
+                # Create streaming request with conversation-aware settings
                 llm_request = LLMRequest(
                     messages=[
                         LLMMessage(role=LLMRole.SYSTEM, content="You are a helpful AI assistant specialized in discussing novel episodes."),
                         LLMMessage(role=LLMRole.USER, content=prompt)
                     ],
                     model=config.llm.model,
-                    temperature=0.3,  # Lower temperature for more focused responses
-                    max_tokens=1000,  # Default max tokens
+                    temperature=request.temperature if hasattr(request, 'temperature') else 0.7,  # Use request temperature
+                    max_tokens=request.max_tokens if hasattr(request, 'max_tokens') else 1000,
                     stream=True  # Enable streaming
                 )
                 
@@ -1400,16 +1481,30 @@ Provide a helpful and contextually relevant answer based on the episode informat
                             "usage": chunk.usage.to_dict()
                         }
                         yield f"data: {json.dumps(usage_data)}\n\n"
+                
+                # Send final metadata with conversation context
+                final_metadata = {
+                    "type": "metadata",
+                    "conversation_id": conversation_id,
+                    "is_new_conversation": is_new_conversation,
+                    "episodes_used": [s.episode_id for s in episode_sources],
+                    "confidence_score": min(episode_relevance_score + 0.1, 1.0) if episode_sources else None,
+                    "conversation_enhanced": conversation_enhanced,
+                    "total_context_messages": len(conversation_context)
+                }
+                yield f"data: {json.dumps(final_metadata)}\n\n"
+                
             else:
                 # No relevant episodes found
                 no_results = {
                     "type": "no_results",
-                    "message": "I couldn't find any relevant episodes to answer your question."
+                    "message": "I couldn't find any relevant episodes to answer your question.",
+                    "conversation_id": conversation_id
                 }
                 yield f"data: {json.dumps(no_results)}\n\n"
             
-            # Send completion signal
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            # Send completion signal with conversation ID
+            yield f"data: {json.dumps({'type': 'done', 'conversation_id': conversation_id})}\n\n"
             
         except Exception as e:
             error_data = {

@@ -171,6 +171,18 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div class="row mt-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Conversation ID (optional):</label>
+                                        <input type="text" id="conversationId" class="form-control" placeholder="Leave empty for new conversation">
+                                        <small class="text-muted">Provide existing ID to continue conversation</small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Max Context Turns:</label>
+                                        <input type="number" id="maxContextTurns" class="form-control" min="1" max="20" value="10">
+                                        <small class="text-muted">Number of previous messages to include</small>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -224,6 +236,7 @@
     <script>
         let authToken = null;
         let eventSource = null;
+        let currentConversationId = null;
 
         async function login() {
             const username = document.getElementById('username').value;
@@ -283,8 +296,19 @@
                 max_episodes: parseInt(document.getElementById('maxEpisodes').value),
                 include_episode_metadata: document.getElementById('includeMetadata').checked,
                 include_sources: document.getElementById('includeSources').checked,
-                use_conversation_context: document.getElementById('useContext').checked
+                use_conversation_context: document.getElementById('useContext').checked,
+                max_context_turns: parseInt(document.getElementById('maxContextTurns').value)
             };
+            
+            // Add conversation ID if provided or use existing one
+            const conversationIdInput = document.getElementById('conversationId').value;
+            if (conversationIdInput) {
+                requestData.conversation_id = conversationIdInput;
+                currentConversationId = conversationIdInput;
+            } else if (currentConversationId && document.getElementById('useContext').checked) {
+                // Continue with existing conversation if context is enabled
+                requestData.conversation_id = currentConversationId;
+            }
             
             // Add optional fields
             const novelIds = document.getElementById('novelIds').value;
@@ -353,6 +377,9 @@
                 const parsed = JSON.parse(data);
                 
                 switch (parsed.type) {
+                    case 'conversation_info':
+                        displayConversationInfo(parsed);
+                        break;
                     case 'search_complete':
                         displaySearchResults(parsed);
                         break;
@@ -371,10 +398,48 @@
                     case 'metadata':
                         displayMetadata(parsed);
                         break;
+                    case 'no_results':
+                        displayNoResults(parsed);
+                        break;
                 }
             } catch (e) {
                 console.error('Failed to parse SSE data:', e);
             }
+        }
+
+        function displayConversationInfo(data) {
+            // Store conversation ID for future use
+            if (data.conversation_id) {
+                currentConversationId = data.conversation_id;
+                
+                // Update the conversation ID input field
+                if (!document.getElementById('conversationId').value) {
+                    document.getElementById('conversationId').value = data.conversation_id;
+                }
+                
+                // Display conversation info
+                const output = document.getElementById('streamOutput');
+                const convDiv = document.createElement('div');
+                convDiv.className = 'alert alert-info mb-3';
+                convDiv.innerHTML = `
+                    <strong>🔗 Conversation Info:</strong><br>
+                    ID: ${data.conversation_id}<br>
+                    New Conversation: ${data.is_new_conversation ? 'Yes' : 'No'}<br>
+                    Has Context: ${data.has_context ? 'Yes' : 'No'}
+                `;
+                output.appendChild(convDiv);
+            }
+        }
+
+        function displayNoResults(data) {
+            const output = document.getElementById('streamOutput');
+            const noResultsDiv = document.createElement('div');
+            noResultsDiv.className = 'alert alert-warning';
+            noResultsDiv.innerHTML = `⚠️ ${data.message}`;
+            if (data.conversation_id) {
+                noResultsDiv.innerHTML += `<br><small>Conversation ID: ${data.conversation_id}</small>`;
+            }
+            output.appendChild(noResultsDiv);
         }
 
         function displaySearchResults(data) {
@@ -450,6 +515,12 @@
             const completeDiv = document.createElement('div');
             completeDiv.className = 'alert alert-success mt-3';
             completeDiv.innerHTML = '✅ Streaming completed!';
+            
+            if (data.conversation_id) {
+                completeDiv.innerHTML += `<br><small>Conversation ID: ${data.conversation_id}</small>`;
+                currentConversationId = data.conversation_id;
+            }
+            
             output.appendChild(completeDiv);
             
             if (data.response_time) {
@@ -470,11 +541,37 @@
             const metaContent = document.getElementById('metadataContent');
             metaDiv.style.display = 'block';
             
-            metaContent.innerHTML += `
-                <div class="mt-2">
-                    <pre class="bg-light p-2">${JSON.stringify(data, null, 2)}</pre>
-                </div>
-            `;
+            // Store conversation ID if present
+            if (data.conversation_id) {
+                currentConversationId = data.conversation_id;
+            }
+            
+            // Create a more structured display of metadata
+            let metaHtml = '<div class="mt-2">';
+            
+            if (data.conversation_id) {
+                metaHtml += `<span class="metadata-badge">Conversation: ${data.conversation_id}</span>`;
+            }
+            if (data.is_new_conversation !== undefined) {
+                metaHtml += `<span class="metadata-badge">New: ${data.is_new_conversation ? 'Yes' : 'No'}</span>`;
+            }
+            if (data.episodes_used) {
+                metaHtml += `<span class="metadata-badge">Episodes Used: ${data.episodes_used.join(', ')}</span>`;
+            }
+            if (data.confidence_score !== null && data.confidence_score !== undefined) {
+                metaHtml += `<span class="metadata-badge">Confidence: ${(data.confidence_score * 100).toFixed(1)}%</span>`;
+            }
+            if (data.conversation_enhanced !== undefined) {
+                metaHtml += `<span class="metadata-badge">Context Enhanced: ${data.conversation_enhanced ? 'Yes' : 'No'}</span>`;
+            }
+            if (data.total_context_messages !== undefined) {
+                metaHtml += `<span class="metadata-badge">Context Messages: ${data.total_context_messages}</span>`;
+            }
+            
+            metaHtml += `<div class="mt-2"><pre class="bg-light p-2">${JSON.stringify(data, null, 2)}</pre></div>`;
+            metaHtml += '</div>';
+            
+            metaContent.innerHTML += metaHtml;
         }
 
         // Auto-login on page load for convenience
