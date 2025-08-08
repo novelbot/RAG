@@ -14,6 +14,7 @@ import time
 import logging
 import re
 import json
+from datetime import datetime, timezone
 
 from ...auth.dependencies import get_current_user, SimpleUser
 from ..schemas import (
@@ -826,13 +827,16 @@ async def process_novel_episodes_background(
 
 # Episode Chat Endpoints
 
+# Import SQLite-based conversation storage
+from ...conversation import conversation_storage, ConversationMessage
+
 async def retrieve_episode_conversation_context(
     conversation_id: str,
     user_id: str,
     max_context_turns: int = 10
 ) -> tuple[Optional[EpisodeChatConversation], List[ChatMessage]]:
     """
-    Retrieve conversation context from storage.
+    Retrieve conversation context from SQLite storage.
     
     Args:
         conversation_id: Unique conversation ID
@@ -842,9 +846,99 @@ async def retrieve_episode_conversation_context(
     Returns:
         Tuple of (conversation object, list of messages)
     """
-    # For now, return empty context since we don't have conversation storage
-    # This can be implemented later with actual conversation persistence
-    return None, []
+    try:
+        print(f"\n[DEBUG] retrieve_episode_conversation_context called:")
+        print(f"  - conversation_id: {conversation_id}")
+        print(f"  - user_id: {user_id}")
+        print(f"  - max_context_turns: {max_context_turns}")
+        
+        # Get messages from SQLite storage
+        messages_data = await conversation_storage.get_messages(
+            conversation_id=conversation_id,
+            limit=max_context_turns * 2  # Each turn = 1 user + 1 assistant message
+        )
+        
+        print(f"  - Retrieved {len(messages_data) if messages_data else 0} messages from storage")
+        
+        if messages_data:
+            # Convert to ChatMessage format
+            chat_messages = []
+            for msg in messages_data:
+                chat_messages.append(ChatMessage(
+                    role=msg.role,
+                    content=msg.content,
+                    timestamp=msg.timestamp,
+                    metadata=msg.metadata or {}
+                ))
+            
+            # Get conversation info
+            conv_info = await conversation_storage.get_conversation_info(conversation_id)
+            
+            # Create conversation object (using 'id' field name as required by model)
+            conversation = EpisodeChatConversation(
+                id=conversation_id,  # Changed from conversation_id to id
+                user_id=str(user_id),  # Ensure it's a string
+                messages=chat_messages,
+                created_at=datetime.fromisoformat(conv_info['created_at']) if conv_info else datetime.now(timezone.utc),
+                updated_at=datetime.fromisoformat(conv_info['updated_at']) if conv_info else datetime.now(timezone.utc),
+                total_messages=len(chat_messages)
+            )
+            
+            logger.info(f"Retrieved {len(chat_messages)} messages for conversation {conversation_id}")
+            return conversation, chat_messages
+        
+        logger.info(f"No messages found for conversation {conversation_id}")
+        return None, []
+        
+    except Exception as e:
+        print(f"[ERROR] Error retrieving conversation context: {e}")
+        print(f"[ERROR] Exception type: {type(e)}")
+        import traceback
+        print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
+        logger.error(f"Error retrieving conversation context: {e}")
+        return None, []
+
+async def save_conversation_message(
+    conversation_id: str,
+    user_id: str,
+    role: str,
+    content: str,
+    metadata: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Save a message to SQLite conversation storage.
+    
+    Args:
+        conversation_id: Unique conversation ID
+        user_id: User ID
+        role: Message role (user/assistant)
+        content: Message content
+        metadata: Optional metadata
+    """
+    try:
+        # Ensure conversation exists
+        conv_info = await conversation_storage.get_conversation_info(conversation_id)
+        if not conv_info:
+            await conversation_storage.create_conversation(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                metadata={"created_via": "episode_chat"}
+            )
+        
+        # Save message
+        message = ConversationMessage(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            metadata=metadata
+        )
+        
+        await conversation_storage.add_message(message)
+        logger.info(f"Saved {role} message to conversation {conversation_id}")
+        
+    except Exception as e:
+        logger.error(f"Error saving conversation message: {e}")
 
 
 async def perform_episode_vector_search(
@@ -1072,6 +1166,19 @@ User Question: {user_message}
 {instruction}
 
 Maintain character consistency and timeline awareness when referencing episode content. If you cannot find relevant information in the provided episodes, mention this clearly."""
+        
+        # LOG: Print the full prompt being sent to LLM
+        print("\n" + "="*80)
+        print("🔍 CHAT ENDPOINT - FULL PROMPT TO LLM:")
+        print("="*80)
+        print(f"Has Conversation Context: {conversation_context is not None and len(conversation_context) > 0}")
+        print(f"Number of Context Messages: {len(conversation_context) if conversation_context else 0}")
+        print(f"Number of Episode Sources: {len(episode_sources) if episode_sources else 0}")
+        print("-"*40)
+        print("PROMPT CONTENT:")
+        print("-"*40)
+        print(prompt)
+        print("="*80 + "\n")
         
         # Generate response using LLM manager directly
         llm_request = LLMRequest(
@@ -1431,6 +1538,19 @@ User Question: {request.message}
 
 {episode_instruction}Provide a helpful and contextually relevant answer based on the episode information and conversation history. Maintain character consistency and timeline awareness."""
                 
+                # LOG: Print the full prompt being sent to LLM
+                print("\n" + "="*80)
+                print("🔍 STREAMING ENDPOINT - FULL PROMPT TO LLM:")
+                print("="*80)
+                print(f"Conversation ID: {conversation_id}")
+                print(f"Has Previous Context: {len(conversation_context) > 0}")
+                print(f"Number of Context Messages: {len(conversation_context)}")
+                print("-"*40)
+                print("PROMPT CONTENT:")
+                print("-"*40)
+                print(prompt)
+                print("="*80 + "\n")
+                
                 # Step 3: Create LLM manager and stream response
                 config = get_config()
                 
@@ -1464,9 +1584,23 @@ User Question: {request.message}
                     stream=True  # Enable streaming
                 )
                 
-                # Stream LLM response
+                # Save user message to conversation
+                await save_conversation_message(
+                    conversation_id=conversation_id,
+                    user_id=current_user.id,
+                    role="user",
+                    content=request.message,
+                    metadata={
+                        "episode_ids": request.episode_ids,
+                        "novel_ids": request.novel_ids
+                    }
+                )
+                
+                # Stream LLM response and collect full response
+                full_response = ""
                 async for chunk in llm_manager.providers[LLMProvider.OLLAMA].generate_stream_async(llm_request):
                     if chunk.content:
+                        full_response += chunk.content
                         chunk_data = {
                             "type": "content",
                             "content": chunk.content,
@@ -1481,6 +1615,18 @@ User Question: {request.message}
                             "usage": chunk.usage.to_dict()
                         }
                         yield f"data: {json.dumps(usage_data)}\n\n"
+                
+                # Save assistant response to conversation
+                await save_conversation_message(
+                    conversation_id=conversation_id,
+                    user_id=current_user.id,
+                    role="assistant",
+                    content=full_response,
+                    metadata={
+                        "episodes_used": [s.episode_id for s in episode_sources],
+                        "relevance_score": episode_relevance_score
+                    }
+                )
                 
                 # Send final metadata with conversation context
                 final_metadata = {

@@ -301,14 +301,24 @@
             };
             
             // Add conversation ID if provided or use existing one
-            const conversationIdInput = document.getElementById('conversationId').value;
+            const conversationIdInput = document.getElementById('conversationId').value.trim();
+            
+            // Priority: 1) Manual input, 2) Current conversation ID (if context enabled)
             if (conversationIdInput) {
+                // User manually entered a conversation ID
                 requestData.conversation_id = conversationIdInput;
                 currentConversationId = conversationIdInput;
+                console.log(`[Request] Using manual conversation ID: ${conversationIdInput}`);
             } else if (currentConversationId && document.getElementById('useContext').checked) {
                 // Continue with existing conversation if context is enabled
                 requestData.conversation_id = currentConversationId;
+                // Also update the input field to show current conversation ID
+                document.getElementById('conversationId').value = currentConversationId;
+                console.log(`[Request] Continuing conversation with ID: ${currentConversationId}`);
+            } else {
+                console.log(`[Request] No conversation ID - server will create new one`);
             }
+            // If neither, server will create a new conversation ID
             
             // Add optional fields
             const novelIds = document.getElementById('novelIds').value;
@@ -410,12 +420,13 @@
         function displayConversationInfo(data) {
             // Store conversation ID for future use
             if (data.conversation_id) {
+                const previousId = currentConversationId;
                 currentConversationId = data.conversation_id;
                 
-                // Update the conversation ID input field
-                if (!document.getElementById('conversationId').value) {
-                    document.getElementById('conversationId').value = data.conversation_id;
-                }
+                console.log(`[Conversation] Previous ID: ${previousId}, New ID: ${currentConversationId}`);
+                
+                // Update the conversation ID input field to show current ID
+                document.getElementById('conversationId').value = data.conversation_id;
                 
                 // Display conversation info
                 const output = document.getElementById('streamOutput');
@@ -423,9 +434,10 @@
                 convDiv.className = 'alert alert-info mb-3';
                 convDiv.innerHTML = `
                     <strong>🔗 Conversation Info:</strong><br>
-                    ID: ${data.conversation_id}<br>
+                    ID: <code>${data.conversation_id}</code><br>
                     New Conversation: ${data.is_new_conversation ? 'Yes' : 'No'}<br>
-                    Has Context: ${data.has_context ? 'Yes' : 'No'}
+                    Has Context: ${data.has_context ? 'Yes (Previous messages loaded)' : 'No (Starting fresh)'}<br>
+                    <small class="text-muted">This ID has been saved for your next message</small>
                 `;
                 output.appendChild(convDiv);
             }
