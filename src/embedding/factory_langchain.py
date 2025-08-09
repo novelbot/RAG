@@ -121,6 +121,65 @@ class LangChainEmbeddingAdapter(BaseEmbeddingProvider):
         }
         
         return dimensions_map.get(model, 768)  # Default to 768
+    
+    def _initialize_client(self) -> None:
+        """Initialize the provider-specific client (already done in __init__)."""
+        pass  # Client is initialized in __init__ via langchain_embeddings
+    
+    def validate_config(self) -> bool:
+        """Validate provider configuration."""
+        if not self.config.api_key and self.config.provider in [EmbeddingProvider.OPENAI, EmbeddingProvider.GOOGLE]:
+            self.logger.warning(f"No API key provided for {self.config.provider}")
+            return False
+        return True
+    
+    def get_supported_models(self) -> List[str]:
+        """Get list of supported models."""
+        provider = self.config.provider
+        if hasattr(provider, 'value'):
+            provider = provider.value
+            
+        if provider in ["openai", EmbeddingProvider.OPENAI]:
+            return ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]
+        elif provider in ["google", EmbeddingProvider.GOOGLE]:
+            return ["models/embedding-001", "models/text-embedding-004"]
+        else:
+            return []
+    
+    def estimate_cost(self, num_tokens: int, model: str) -> float:
+        """Estimate cost for embedding generation."""
+        # Cost per 1M tokens (approximate)
+        cost_map = {
+            "text-embedding-3-small": 0.02,
+            "text-embedding-3-large": 0.13,
+            "text-embedding-ada-002": 0.10,
+            "models/embedding-001": 0.0,  # Free during preview
+            "models/text-embedding-004": 0.0,  # Free during preview
+        }
+        
+        cost_per_million = cost_map.get(model, 0.0)
+        return (num_tokens / 1_000_000) * cost_per_million
+    
+    def get_model_info(self) -> dict:
+        """Get model information for compatibility with processor."""
+        # Model max tokens mapping
+        max_tokens_map = {
+            "text-embedding-3-small": 8191,
+            "text-embedding-3-large": 8191,
+            "text-embedding-ada-002": 8191,
+            "models/embedding-001": 2048,
+            "models/text-embedding-004": 2048,
+        }
+        
+        model = self.config.model
+        return {
+            "provider": self.config.provider.value if hasattr(self.config.provider, 'value') else str(self.config.provider),
+            "model": model,
+            "max_tokens": max_tokens_map.get(model, 2048),
+            "dimensions": self.get_embedding_dimension(model),
+            "supports_batch": True,
+            "supports_async": hasattr(self.langchain_embeddings, 'aembed_documents')
+        }
 
 
 def get_langchain_embedding_client(config: EmbeddingConfig) -> BaseEmbeddingProvider:
