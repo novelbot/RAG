@@ -358,7 +358,7 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
         chunking_threshold = int(max_tokens * 0.85)
         
         for episode in episodes:
-            estimated_tokens = int(len(episode.content) * 1.5)  # Korean text estimation
+            estimated_tokens = int(len(episode.content) / 1.55)  # Korean text: ~1.55 chars/token
             if estimated_tokens <= chunking_threshold:
                 batch_episodes.append(episode)
             else:
@@ -660,7 +660,7 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
                 content_length = len(content)
                 
                 # 토큰 수 대략 추정 (한국어: 문자당 약 1.5토큰, 영어: 4문자당 1토큰)
-                estimated_tokens = int(content_length * 1.5)  # 한국어 기준 보수적 추정
+                estimated_tokens = int(content_length / 1.55)  # 한국어: ~1.55 chars/token (GPT-4o 기준)
                 
                 # 모델의 max_tokens에 따라 동적으로 청킹 임계값 결정
                 max_tokens = self._get_model_max_tokens()
@@ -872,6 +872,14 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             # Get primary provider
             primary_provider = list(self.embedding_manager.providers.values())[0]
             
+            # Check if provider has get_model_info method (LangChain providers)
+            if hasattr(primary_provider, 'get_model_info'):
+                model_info = primary_provider.get_model_info()
+                if 'max_tokens' in model_info:
+                    max_tokens = model_info['max_tokens']
+                    self.logger.debug(f"📏 Model {model_info.get('model', 'unknown')} max_tokens: {max_tokens}")
+                    return max_tokens
+            
             # For Ollama provider, check MODEL_CONFIGS
             if hasattr(primary_provider, 'MODEL_CONFIGS'):
                 model_name = getattr(primary_provider, 'model', None)
@@ -939,24 +947,28 @@ class EpisodeEmbeddingProcessor(LoggerMixin):
             # Calculate safe token count (85% of max to be conservative)
             safe_tokens = int(max_tokens * 0.85)
             
-            # Convert to character count (Korean text: ~1.5 tokens per character)
-            safe_chars = int(safe_tokens / 1.5)
+            # Convert to character count (Korean text: ~1.55 chars per token)
+            safe_chars = int(safe_tokens * 1.55)
             
-            # Use smaller of default (1500) or calculated safe size
-            chunk_size = min(1500, safe_chars)
+            # Apply safety limits: minimum 500, maximum 15000 characters
+            chunk_size = max(500, min(15000, safe_chars))
             
-            # Calculate proportional overlap (maintain ~13.3% ratio from 200/1500)
-            overlap_ratio = 200 / 1500  # 0.133
-            overlap = max(20, min(200, int(chunk_size * overlap_ratio)))
+            # Calculate proportional overlap (13.3% of chunk size)
+            overlap_ratio = 0.133
+            calculated_overlap = int(chunk_size * overlap_ratio)
+            
+            # Apply overlap safety limits: minimum 50, maximum 2000 characters
+            overlap = max(50, min(2000, calculated_overlap))
             
             self.logger.debug(f"📏 Dynamic chunking: max_tokens={max_tokens}, chunk_size={chunk_size}, overlap={overlap}")
+            self.logger.info(f"🔧 Chunk settings: {chunk_size:,}자 chunks, {overlap}자 overlap (모델: {max_tokens} tokens)")
             
             return chunk_size, overlap
             
         except Exception as e:
             self.logger.error(f"Error calculating optimal chunk settings: {e}")
             # Return safe defaults
-            return 300, 50
+            return 1500, 200  # Reasonable defaults instead of too small
     
     def get_processing_stats(self) -> Dict[str, Any]:
         """Get current processing statistics."""

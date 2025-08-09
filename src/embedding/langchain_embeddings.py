@@ -80,6 +80,29 @@ class LangChainEmbeddingProvider(BaseEmbeddingProvider, LoggerMixin):
         "BAAI/bge-large-en-v1.5": 1024,
     }
     
+    # Model max token limits
+    MODEL_MAX_TOKENS = {
+        # OpenAI models - all support 8191 tokens
+        "text-embedding-3-small": 8191,
+        "text-embedding-3-large": 8191,
+        "text-embedding-ada-002": 8191,
+        
+        # Google models
+        "models/embedding-001": 2048,
+        "models/text-embedding-004": 2048,
+        
+        # Ollama models
+        "nomic-embed-text": 8192,
+        "mxbai-embed-large": 512,
+        "all-minilm": 256,
+        "bge-m3": 8192,
+        
+        # HuggingFace models
+        "sentence-transformers/all-MiniLM-L6-v2": 512,
+        "sentence-transformers/all-mpnet-base-v2": 512,
+        "BAAI/bge-large-en-v1.5": 512,
+    }
+    
     def __init__(self, config: Union[EmbeddingConfig, LangChainEmbeddingConfig]):
         """Initialize LangChain embedding provider."""
         if isinstance(config, EmbeddingConfig):
@@ -322,6 +345,7 @@ class LangChainEmbeddingProvider(BaseEmbeddingProvider, LoggerMixin):
             "provider": self.config.provider,
             "model": self.config.model,
             "dimensions": self.config.dimensions,
+            "max_tokens": self.MODEL_MAX_TOKENS.get(self.config.model, 2048),
             "max_batch_size": self.config.batch_size,
             "supports_async": hasattr(self.embeddings_client, 'aembed_documents'),
             "langchain_integration": True,
