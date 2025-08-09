@@ -202,15 +202,24 @@ router = APIRouter(prefix="/episode", tags=["episode"])
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
 
+# Global cache for RAG manager
+_rag_manager_cache: Optional[EpisodeRAGManager] = None
 
 # Dependency injection for EpisodeRAGManager
 async def get_rag_manager() -> EpisodeRAGManager:
     """
     Get EpisodeRAGManager instance for dependency injection.
+    Uses caching to avoid recreating the manager on every request.
     
     Returns:
         EpisodeRAGManager: Configured RAG manager instance
     """
+    global _rag_manager_cache
+    
+    # Return cached instance if available
+    if _rag_manager_cache is not None:
+        return _rag_manager_cache
+    
     config = get_config()
     
     # Initialize database manager
@@ -244,6 +253,10 @@ async def get_rag_manager() -> EpisodeRAGManager:
         config=episode_config,
         setup_collection=False  # Assume collection already exists
     )
+    
+    # Cache the manager for future requests
+    _rag_manager_cache = episode_rag_manager
+    logger.info("Cached EpisodeRAGManager for future requests")
     
     return episode_rag_manager
 
@@ -963,71 +976,76 @@ async def perform_episode_vector_search(
     max_episodes: int,
     max_results: int,
     sort_order: str,
-    conversation_context: Optional[List[ChatMessage]]
+    conversation_context: Optional[List[ChatMessage]],
+    rag_manager: Optional[EpisodeRAGManager] = None
 ) -> tuple[List[EpisodeSource], EpisodeSearchMetadata]:
     """Perform episode-aware vector search for chat context."""
     start_time = time.time()
     
     try:
-        # Initialize episode search components
-        config = get_config()
-        
-        from ...database.base import DatabaseManager
-        db_manager = DatabaseManager(config.database)
-        
-        # Get global embedding manager from app startup
-        import sys
-        embedding_manager = None
-        
-        # Try multiple ways to get the embedding manager
-        app_module = sys.modules.get('src.core.app')
-        if app_module:
-            embedding_manager = getattr(app_module, 'embedding_manager', None)
-        
-        # Try getting from globals if not found in module
-        if not embedding_manager:
-            try:
-                from ...core.app import embedding_manager as global_embedding_manager
-                embedding_manager = global_embedding_manager
-            except (ImportError, AttributeError):
-                pass
-        
-        if not embedding_manager:
-            logger.warning("Global embedding manager not found, creating new instance")
-            try:
-                from ...embedding.manager import EmbeddingManager, EmbeddingProviderConfig
-                provider_config = EmbeddingProviderConfig(
-                    provider=config.embedding.provider,
-                    config=config.embedding,
-                    priority=1,
-                    enabled=True
-                )
-                embedding_manager = EmbeddingManager([provider_config], enable_cache=True)
-                logger.info("✅ Created new embedding manager instance")
-            except Exception as e:
-                logger.error(f"Failed to create embedding manager: {e}")
-                raise Exception(f"Cannot initialize embedding manager: {e}")
-        
-        milvus_client = MilvusClient(config.milvus)
-        milvus_client.connect()
-        
-        # Generate dynamic collection name based on embedding model
-        from ...episode.vector_store import get_model_name_for_collection
-        model_name = get_model_name_for_collection(embedding_manager)
-        dynamic_collection_name = f"episode_embeddings_{model_name}"
-        
-        episode_config = EpisodeRAGConfig(
-            collection_name=dynamic_collection_name,
-            default_search_limit=max_episodes
-        )
-        
-        episode_rag_manager = await create_episode_rag_manager(
-            database_manager=db_manager,
-            embedding_manager=embedding_manager,
-            milvus_client=milvus_client,
-            config=episode_config,
-            setup_collection=False
-        )
+        # Use provided rag_manager or create new one
+        if rag_manager:
+            episode_rag_manager = rag_manager
+        else:
+            # Initialize episode search components
+            config = get_config()
+            
+            from ...database.base import DatabaseManager
+            db_manager = DatabaseManager(config.database)
+            
+            # Get global embedding manager from app startup
+            import sys
+            embedding_manager = None
+            
+            # Try multiple ways to get the embedding manager
+            app_module = sys.modules.get('src.core.app')
+            if app_module:
+                embedding_manager = getattr(app_module, 'embedding_manager', None)
+            
+            # Try getting from globals if not found in module
+            if not embedding_manager:
+                try:
+                    from ...core.app import embedding_manager as global_embedding_manager
+                    embedding_manager = global_embedding_manager
+                except (ImportError, AttributeError):
+                    pass
+            
+            if not embedding_manager:
+                logger.warning("Global embedding manager not found, creating new instance")
+                try:
+                    from ...embedding.manager import EmbeddingManager, EmbeddingProviderConfig
+                    provider_config = EmbeddingProviderConfig(
+                        provider=config.embedding.provider,
+                        config=config.embedding,
+                        priority=1,
+                        enabled=True
+                    )
+                    embedding_manager = EmbeddingManager([provider_config], enable_cache=True)
+                    logger.info("✅ Created new embedding manager instance")
+                except Exception as e:
+                    logger.error(f"Failed to create embedding manager: {e}")
+                    raise Exception(f"Cannot initialize embedding manager: {e}")
+            
+            milvus_client = MilvusClient(config.milvus)
+            milvus_client.connect()
+            
+            # Generate dynamic collection name based on embedding model
+            from ...episode.vector_store import get_model_name_for_collection
+            model_name = get_model_name_for_collection(embedding_manager)
+            dynamic_collection_name = f"episode_embeddings_{model_name}"
+            
+            episode_config = EpisodeRAGConfig(
+                collection_name=dynamic_collection_name,
+                default_search_limit=max_episodes
+            )
+            
+            episode_rag_manager = await create_episode_rag_manager(
+                database_manager=db_manager,
+                embedding_manager=embedding_manager,
+                milvus_client=milvus_client,
+                config=episode_config,
+                setup_collection=False
+            )
         
         # Enhance query with conversation context
         enhanced_query = query
@@ -1256,7 +1274,8 @@ Maintain character consistency and timeline awareness when referencing episode c
 async def episode_chat(
     request: EpisodeChatRequest,
     current_user: SimpleUser = Depends(get_current_user),
-    background_tasks: BackgroundTasks = BackgroundTasks()
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    rag_manager: EpisodeRAGManager = Depends(get_rag_manager)
 ) -> EpisodeChatResponse:
     """
     Episode-aware chat endpoint that combines episode filtering with conversation context.
@@ -1292,7 +1311,8 @@ async def episode_chat(
             max_episodes=request.max_episodes,
             max_results=request.max_results,
             sort_order=request.episode_sort_order,
-            conversation_context=conversation_context if request.use_conversation_context else None
+            conversation_context=conversation_context if request.use_conversation_context else None,
+            rag_manager=rag_manager
         )
         
         # Step 3: Generate episode-aware AI response

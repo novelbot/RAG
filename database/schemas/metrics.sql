@@ -23,7 +23,6 @@ CREATE TABLE query_logs (
             ip_address TEXT,
             user_agent TEXT
         );
-CREATE TABLE sqlite_sequence(name,seq);
 CREATE TABLE document_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             document_id TEXT NOT NULL,

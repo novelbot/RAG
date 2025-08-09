@@ -46,6 +46,32 @@ class RefreshTokenRequest(BaseAPISchema):
     refresh_token: str = Field(..., description="Valid refresh token to exchange for new tokens")
 
 
+class ChangePasswordRequest(BaseAPISchema):
+    """Change password request schema"""
+    current_password: str = Field(..., min_length=1, description="Current password")
+    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
+    confirm_password: str = Field(..., min_length=6, description="Confirm new password")
+    
+    @field_validator('confirm_password')
+    @classmethod
+    def passwords_match(cls, v: str, info) -> str:
+        if 'new_password' in info.data and v != info.data['new_password']:
+            raise ValueError('Passwords do not match')
+        return v
+
+
+class ResetPasswordRequest(BaseAPISchema):
+    """Reset password request schema (admin only)"""
+    username: str = Field(..., min_length=3, max_length=50, description="Username to reset password for")
+    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
+
+
+class PasswordChangeResponse(BaseAPISchema):
+    """Password change/reset response schema"""
+    success: bool = Field(..., description="Operation success status")
+    message: str = Field(..., description="Response message")
+
+
 class TokenResponse(BaseAPISchema):
     """Token response schema"""
     access_token: str = Field(..., description="JWT access token")

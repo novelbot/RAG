@@ -881,7 +881,10 @@ class VectorSearchEngine(LoggerMixin):
         if hasattr(milvus_result, 'hits'):
             # Handle different result formats
             milvus_hits = milvus_result.hits
-            if not isinstance(milvus_hits[0], list):
+            # Check if milvus_hits is empty
+            if not milvus_hits:
+                milvus_hits = []
+            elif milvus_hits and not isinstance(milvus_hits[0], list):
                 # Single query result
                 milvus_hits = [milvus_hits]
             

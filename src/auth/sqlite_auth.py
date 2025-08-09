@@ -184,6 +184,62 @@ class SQLiteAuthManager:
             """)
             return [dict(row) for row in cursor.fetchall()]
     
+    def change_password(self, username: str, current_password: str, new_password: str) -> Dict[str, Any]:
+        """사용자 비밀번호 변경"""
+        # 먼저 현재 비밀번호 확인
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, password_hash 
+                FROM users 
+                WHERE username = ? AND is_active = 1
+            """, (username,))
+            
+            user = cursor.fetchone()
+            if not user:
+                return {"success": False, "message": "User not found"}
+            
+            # 현재 비밀번호 검증
+            if not self._verify_password(current_password, user['password_hash']):
+                return {"success": False, "message": "Invalid current password"}
+            
+            # 새 비밀번호 해싱 및 업데이트
+            new_password_hash = self._hash_password(new_password)
+            conn.execute("""
+                UPDATE users 
+                SET password_hash = ?, 
+                    password_updated_at = CURRENT_TIMESTAMP,
+                    force_password_change = 0
+                WHERE id = ?
+            """, (new_password_hash, user['id']))
+            conn.commit()
+            
+            return {"success": True, "message": "Password changed successfully"}
+    
+    def reset_password(self, username: str, new_password: str) -> Dict[str, Any]:
+        """관리자 권한으로 비밀번호 재설정 (현재 비밀번호 확인 없음)"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT id FROM users WHERE username = ?
+            """, (username,))
+            
+            user = cursor.fetchone()
+            if not user:
+                return {"success": False, "message": "User not found"}
+            
+            # 새 비밀번호 해싱 및 업데이트
+            new_password_hash = self._hash_password(new_password)
+            conn.execute("""
+                UPDATE users 
+                SET password_hash = ?, 
+                    password_updated_at = CURRENT_TIMESTAMP,
+                    force_password_change = 1
+                WHERE id = ?
+            """, (new_password_hash, user[0]))
+            conn.commit()
+            
+            return {"success": True, "message": "Password reset successfully"}
+    
 
 # 전역 인스턴스
 auth_manager = SQLiteAuthManager()

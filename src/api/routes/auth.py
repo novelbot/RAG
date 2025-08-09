@@ -10,7 +10,10 @@ import asyncio
 # MockUser removed - using actual User model from database
 from ...auth.sqlite_auth import auth_manager
 from ...auth.jwt_manager import JWTManager
-from ..schemas import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse, RefreshTokenRequest
+from ..schemas import (
+    LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse, 
+    RefreshTokenRequest, ChangePasswordRequest, ResetPasswordRequest, PasswordChangeResponse
+)
 from ...metrics.collectors import session_collector
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -219,5 +222,111 @@ async def get_current_user(token: HTTPAuthorizationCredentials = Depends(securit
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.post("/change-password", response_model=PasswordChangeResponse)
+async def change_password(
+    request: ChangePasswordRequest,
+    token: HTTPAuthorizationCredentials = Depends(security)
+) -> PasswordChangeResponse:
+    """
+    Change password for the authenticated user.
+    
+    Args:
+        request: Password change request containing current and new password
+        token: JWT token from Authorization header
+        
+    Returns:
+        PasswordChangeResponse: Success status and message
+        
+    Raises:
+        HTTPException: 401 if token is invalid or current password is incorrect
+    """
+    # Verify token and get user info
+    try:
+        token_payload = jwt_manager.validate_token(token.credentials, token_type="access")
+        username = token_payload.username
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Change password
+    result = auth_manager.change_password(
+        username=username,
+        current_password=request.current_password,
+        new_password=request.new_password
+    )
+    
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["message"]
+        )
+    
+    return PasswordChangeResponse(
+        success=result["success"],
+        message=result["message"]
+    )
+
+
+@router.post("/reset-password", response_model=PasswordChangeResponse)
+async def reset_password(
+    request: ResetPasswordRequest,
+    token: HTTPAuthorizationCredentials = Depends(security)
+) -> PasswordChangeResponse:
+    """
+    Reset password for a specific user (admin only).
+    
+    Args:
+        request: Password reset request containing username and new password
+        token: JWT token from Authorization header
+        
+    Returns:
+        PasswordChangeResponse: Success status and message
+        
+    Raises:
+        HTTPException: 401 if token is invalid
+        HTTPException: 403 if user is not admin
+        HTTPException: 404 if target user not found
+    """
+    # Verify token and check admin role
+    try:
+        token_payload = jwt_manager.validate_token(token.credentials, token_type="access")
+        
+        # Check if user has admin role
+        if not token_payload.roles or "admin" not in token_payload.roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only administrators can reset passwords"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Reset password
+    result = auth_manager.reset_password(
+        username=request.username,
+        new_password=request.new_password
+    )
+    
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result["message"]
+        )
+    
+    return PasswordChangeResponse(
+        success=result["success"],
+        message=result["message"]
+    )
 
 

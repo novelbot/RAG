@@ -7,7 +7,6 @@ CREATE TABLE conversations (
                     metadata TEXT,
                     UNIQUE(conversation_id)
                 );
-CREATE TABLE sqlite_sequence(name,seq);
 CREATE TABLE messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     conversation_id TEXT NOT NULL,

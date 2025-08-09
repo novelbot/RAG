@@ -8,7 +8,6 @@ CREATE TABLE users (
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP
                 , password_updated_at TIMESTAMP, force_password_change BOOLEAN DEFAULT 0);
-CREATE TABLE sqlite_sequence(name,seq);
 CREATE TABLE sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
