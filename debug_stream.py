@@ -16,7 +16,7 @@ try:
         provider="openai",
         model="gpt-4o-mini",
         api_key=config.llm.api_key,  # Use API key from env
-        temperature=0.7,
+        temperature=0.3,
         max_tokens=1000
     )
     print(f"\nNew LLMConfig has stream: {hasattr(new_config, 'stream')}")

@@ -2091,34 +2091,83 @@ async def process_all_episodes_background(
         # Setup collection first (force drop if reprocessing, same as CLI)
         await episode_manager.setup_collection(drop_existing=force_reprocess)
         
-        print(f"Found {len(episode_ids)} episodes to process")
-        
         total_processed = 0
         total_failed = 0
         
-        # Process episodes individually
-        for i, episode_id in enumerate(episode_ids, 1):
-            try:
-                print(f"🔄 Processing Episode {episode_id} ({i}/{len(episode_ids)})")
-                
-                # Add delay between episodes to prevent Ollama overload
-                if i > 1:
-                    import asyncio
-                    await asyncio.sleep(1)  # 1 second delay
-                
-                result = await episode_manager.process_episodes([episode_id], force_reprocess=force_reprocess)
-                
-                if result.get('episodes_processed', 0) > 0:
-                    total_processed += 1
-                    print(f"✅ Episode {episode_id}: processed successfully")
+        # Choose processing strategy based on force_reprocess flag
+        if force_reprocess:
+            # When force_reprocess=True, use CLI logic: process by novels
+            print(f"🔄 Force reprocess mode: Processing by novels (CLI logic)")
+            
+            # Get novel IDs from episode IDs
+            from sqlalchemy import text
+            with db_manager.get_connection() as conn:
+                if episode_ids:
+                    # Get unique novel IDs from the provided episode IDs
+                    placeholders = ','.join([':id' + str(i) for i in range(len(episode_ids))])
+                    params = {f'id{i}': episode_id for i, episode_id in enumerate(episode_ids)}
+                    result = conn.execute(
+                        text(f"SELECT DISTINCT novel_id FROM episode WHERE episode_id IN ({placeholders})"),
+                        params
+                    )
+                    novel_ids = result.scalars().all()
                 else:
+                    # Get all novel IDs
+                    result = conn.execute(text("SELECT DISTINCT novel_id FROM novels"))
+                    novel_ids = result.scalars().all()
+            
+            print(f"Found {len(novel_ids)} novels to process")
+            
+            # Process by novels (same as CLI)
+            for i, novel_id in enumerate(novel_ids, 1):
+                try:
+                    print(f"🔄 Processing Novel {novel_id} ({i}/{len(novel_ids)})")
+                    
+                    # Add delay between novels to prevent Ollama overload
+                    if i > 1:
+                        import asyncio
+                        await asyncio.sleep(2)  # 2 second delay (same as CLI)
+                    
+                    result = await episode_manager.process_novel(novel_id, force_reprocess=True)
+                    
+                    episode_count = result.get('episodes_processed', 0)
+                    total_processed += episode_count
+                    
+                    print(f"✅ Novel {novel_id}: {episode_count} episodes processed")
+                    
+                except Exception as e:
                     total_failed += 1
-                    print(f"❌ Episode {episode_id}: processing failed")
-                
-            except Exception as e:
-                total_failed += 1
-                print(f"❌ Failed to process Episode {episode_id}: {e}")
-                continue
+                    print(f"❌ Failed to process Novel {novel_id}: {e}")
+                    continue
+                    
+        else:
+            # When force_reprocess=False, use existing logic: process by individual episodes
+            print(f"📝 Regular processing mode: Processing by individual episodes")
+            print(f"Found {len(episode_ids)} episodes to process")
+            
+            # Process episodes individually
+            for i, episode_id in enumerate(episode_ids, 1):
+                try:
+                    print(f"🔄 Processing Episode {episode_id} ({i}/{len(episode_ids)})")
+                    
+                    # Add delay between episodes to prevent Ollama overload
+                    if i > 1:
+                        import asyncio
+                        await asyncio.sleep(1)  # 1 second delay
+                    
+                    result = await episode_manager.process_episodes([episode_id], force_reprocess=force_reprocess)
+                    
+                    if result.get('episodes_processed', 0) > 0:
+                        total_processed += 1
+                        print(f"✅ Episode {episode_id}: processed successfully")
+                    else:
+                        total_failed += 1
+                        print(f"❌ Episode {episode_id}: processing failed")
+                    
+                except Exception as e:
+                    total_failed += 1
+                    print(f"❌ Failed to process Episode {episode_id}: {e}")
+                    continue
         
         processing_time = time.time() - start_time
         

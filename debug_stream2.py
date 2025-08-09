@@ -15,7 +15,7 @@ try:
         provider="openai",
         model="gpt-4o-mini",
         api_key=config.llm.api_key,
-        temperature=0.7,
+        temperature=0.3,
         max_tokens=1000
     )
     print(f"\nNew LLMConfig type: {type(new_config)}")

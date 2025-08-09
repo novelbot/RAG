@@ -23,7 +23,7 @@ async def test_provider(provider_name, model_name, api_key=None):
             "message": f"안녕하세요\! {provider_name}를 사용중입니다. 1부터 3까지 세어주세요.",
             "llm_provider": provider_name.lower(),
             "llm_model": model_name,
-            "temperature": 0.7,
+            "temperature": 0.3,
             "max_tokens": 200,
             "max_episodes": 1,
             "episode_ids": [],
@@ -108,7 +108,7 @@ async def main():
                 
                 request_data = {
                     "message": "Default provider 테스트입니다. 안녕하세요\!",
-                    "temperature": 0.7,
+                    "temperature": 0.3,
                     "max_tokens": 100,
                     "episode_ids": [],
                     "novel_ids": []

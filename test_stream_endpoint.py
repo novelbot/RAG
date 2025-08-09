@@ -25,7 +25,7 @@ async def test_streaming():
             "message": "안녕하세요\! 1부터 3까지 세어주세요.",
             "episode_ids": [],
             "novel_ids": [],
-            "temperature": 0.7,
+            "temperature": 0.3,
             "max_tokens": 200
         }
         
@@ -67,7 +67,7 @@ async def test_streaming():
             "llm_model": "gpt-4o-mini",
             "episode_ids": [],
             "novel_ids": [],
-            "temperature": 0.7,
+            "temperature": 0.3,
             "max_tokens": 200
         }
         

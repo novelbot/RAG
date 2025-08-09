@@ -73,7 +73,7 @@ async def test_llm_manager():
                 provider=LLMProvider.OPENAI,
                 model="gpt-3.5-turbo",
                 api_key=os.getenv("OPENAI_API_KEY"),
-                temperature=0.7
+                temperature=0.3
             )
         ))
     
@@ -165,7 +165,7 @@ async def test_langchain_rag():
         from src.rag.langchain_rag import LangChainRAG, LangChainRAGConfig, RAGStrategy
         
         # Setup components
-        llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7)
+        llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.3)
         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
         vector_store = InMemoryVectorStore(embeddings)
         
@@ -182,7 +182,7 @@ async def test_langchain_rag():
         config = LangChainRAGConfig(
             strategy=RAGStrategy.SIMPLE,
             retrieval_k=2,
-            temperature=0.7
+            temperature=0.3
         )
         
         rag = LangChainRAG(llm, retriever, config)

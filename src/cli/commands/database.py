@@ -35,16 +35,33 @@ def database_group():
 @database_group.command(name='init')
 @click.option('--force/--no-force', default=False,
               help='Force initialization even if database already exists.')
-def init_database(force):
+@click.option('--sqlite/--no-sqlite', default=False,
+              help='Initialize SQLite databases using schema files.')
+@click.argument('databases', nargs=-1, required=False,
+                type=click.Choice(['auth', 'metrics', 'conversations', 'user_data']))
+def init_database(force, sqlite, databases):
     """Initialize the database schema.
     
     Creates all necessary tables and indexes for the RAG server.
     This should be run once when setting up a new instance.
     
+    For SQLite databases, you can initialize specific databases:
+    - auth: Authentication database
+    - metrics: Metrics tracking database  
+    - conversations: Conversation history database
+    - user_data: User data storage
+    
     Examples:
         rag-cli database init
         rag-cli database init --force
+        rag-cli database init --sqlite                    # Initialize all SQLite DBs
+        rag-cli database init --sqlite auth metrics       # Initialize specific DBs
+        rag-cli database init --sqlite --force           # Force reinitialize
     """
+    # Handle SQLite initialization
+    if sqlite:
+        _init_sqlite_databases(databases, force)
+        return
     console.print("[yellow]Initializing database schema...[/yellow]")
     
     try:
@@ -1164,6 +1181,143 @@ def _create_default_roles_and_permissions(db_manager):
                         session.add(role_perm)
         
         session.commit()
+
+
+def _init_sqlite_databases(database_names, force):
+    """Initialize SQLite databases using schema files."""
+    import sqlite3
+    import hashlib
+    from pathlib import Path
+    
+    console.print("[yellow]Initializing SQLite databases...[/yellow]")
+    
+    # Define database configurations
+    project_root = Path.cwd()
+    schema_dir = project_root / "database" / "schemas"
+    data_dir = project_root / "data"
+    
+    # Ensure directories exist
+    data_dir.mkdir(exist_ok=True)
+    schema_dir.mkdir(parents=True, exist_ok=True)
+    
+    db_configs = {
+        'auth': {
+            'path': project_root / 'auth.db',
+            'schema': schema_dir / 'auth.sql',
+            'init_func': lambda p: _init_auth_db(p)
+        },
+        'metrics': {
+            'path': project_root / 'metrics.db',
+            'schema': schema_dir / 'metrics.sql',
+            'init_func': None
+        },
+        'conversations': {
+            'path': data_dir / 'conversations.db',
+            'schema': schema_dir / 'conversations.sql',
+            'init_func': None
+        },
+        'user_data': {
+            'path': data_dir / 'user_data.db',
+            'schema': schema_dir / 'user_data.sql',
+            'init_func': None
+        }
+    }
+    
+    # Filter databases if specific ones requested
+    if database_names:
+        db_configs = {k: v for k, v in db_configs.items() if k in database_names}
+    
+    console.print(f"[dim]Databases to initialize: {list(db_configs.keys())}[/dim]")
+    
+    success_count = 0
+    for db_name, config in db_configs.items():
+        try:
+            console.print(f"\n[cyan]Processing {db_name} database...[/cyan]")
+            
+            # Check if database exists
+            if config['path'].exists() and not force:
+                console.print(f"[yellow]{db_name}.db already exists[/yellow]")
+                if not confirm_action(f"Reinitialize {db_name} database? This will delete existing data!"):
+                    console.print(f"[dim]Skipping {db_name}[/dim]")
+                    continue
+            
+            # Load schema
+            if not config['schema'].exists():
+                console.print(f"[yellow]Schema file not found: {config['schema']}[/yellow]")
+                console.print(f"[dim]Creating empty {db_name} database[/dim]")
+                schema_sql = ""
+            else:
+                with open(config['schema'], 'r') as f:
+                    schema_sql = f.read()
+            
+            # Create/recreate database
+            if config['path'].exists() and force:
+                config['path'].unlink()
+                console.print(f"[dim]Removed existing {db_name}.db[/dim]")
+            
+            # Connect and apply schema
+            conn = sqlite3.connect(config['path'])
+            cursor = conn.cursor()
+            
+            if schema_sql and not schema_sql.startswith("#"):
+                cursor.executescript(schema_sql)
+                conn.commit()
+                console.print(f"[green]✓ Applied schema to {db_name}.db[/green]")
+            else:
+                console.print(f"[green]✓ Created empty {db_name}.db[/green]")
+            
+            # Run post-initialization if defined
+            if config['init_func']:
+                config['init_func'](config['path'])
+            
+            conn.close()
+            success_count += 1
+            
+        except Exception as e:
+            console.print(f"[red]✗ Failed to initialize {db_name}: {e}[/red]")
+    
+    # Summary
+    if success_count == len(db_configs):
+        console.print(f"\n[green]✅ Successfully initialized {success_count}/{len(db_configs)} databases[/green]")
+    else:
+        console.print(f"\n[yellow]⚠ Initialized {success_count}/{len(db_configs)} databases[/yellow]")
+
+
+def _init_auth_db(db_path):
+    """Initialize auth database with default admin user."""
+    import sqlite3
+    import hashlib
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if admin already exists
+        cursor.execute("SELECT username FROM users WHERE username = 'admin'")
+        if cursor.fetchone():
+            console.print("[dim]Admin user already exists[/dim]")
+            conn.close()
+            return
+        
+        # Create admin user with hashed password
+        # Default password: admin123 (should be changed on first login)
+        password_hash = hashlib.sha256("admin123".encode()).hexdigest()
+        
+        cursor.execute("""
+            INSERT INTO users (username, password_hash, email, role, is_active)
+            VALUES ('admin', ?, 'admin@example.com', 'admin', 1)
+        """, (password_hash,))
+        
+        conn.commit()
+        conn.close()
+        
+        console.print("[green]✓ Created default admin user[/green]")
+        console.print("[yellow]  Username: admin[/yellow]")
+        console.print("[yellow]  Password: admin123[/yellow]")
+        console.print("[red]  ⚠️  Please change the password after first login![/red]")
+        
+    except Exception as e:
+        console.print(f"[yellow]⚠ Could not create admin user: {e}[/yellow]")
 
 
 def _create_default_admin_user(db_manager):
