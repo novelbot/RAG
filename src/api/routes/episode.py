@@ -5,7 +5,7 @@ This module provides API endpoints for episode-specific search and query operati
 supporting filtering by episode IDs and sorting by episode numbers.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, Query
 from fastapi.security import HTTPBearer
 from fastapi.responses import StreamingResponse
 from typing import Dict, List, Any, Optional, Set, AsyncIterator
@@ -352,7 +352,7 @@ async def search_episodes(
                 "context_ordered_by_episode": request.sort_order == "episode_number",
                 "used_real_search_engine": True
             },
-            user_id=current_user.id
+            user_id=str(current_user.id)
         )
         
     except Exception as e:
@@ -436,7 +436,7 @@ async def get_episode_context(
             total_length=total_length,
             episode_order=included_episodes,
             truncated=truncated,
-            user_id=current_user.id
+            user_id=str(current_user.id)
         )
         
     except Exception as e:
@@ -611,7 +611,7 @@ Please provide a detailed and helpful answer based on the episode information pr
                 "max_tokens": request.max_tokens,
                 "context_ordered_by_episode": True
             },
-            user_id=current_user.id
+            user_id=str(current_user.id)
         )
         
     except Exception as e:
@@ -936,7 +936,7 @@ async def save_conversation_message(
         if not conv_info:
             await conversation_storage.create_conversation(
                 conversation_id=conversation_id,
-                user_id=user_id,
+                user_id=str(user_id),  # Ensure user_id is string
                 metadata={"created_via": "episode_chat"}
             )
         
@@ -1280,7 +1280,7 @@ async def episode_chat(
         if request.use_conversation_context and request.conversation_id:
             conversation, conversation_context = await retrieve_episode_conversation_context(
                 conversation_id=request.conversation_id,
-                user_id=current_user.id,
+                user_id=str(current_user.id),
                 max_context_turns=request.max_context_turns
             )
         
@@ -1309,7 +1309,7 @@ async def episode_chat(
         
         # Step 5: Log query (in background)
         query_context = QueryContext(
-            user_id=current_user.id,
+            user_id=str(current_user.id),
             session_id=conversation_id,
             user_agent="",
             ip_address=""
@@ -1368,7 +1368,7 @@ async def episode_chat(
             episode_relevance_score=episode_relevance_score,
             has_context=len(conversation_context) > 0,
             response_time_ms=(time.time() - start_time) * 1000,
-            user_id=current_user.id
+            user_id=str(current_user.id)
         )
         
         return response
@@ -1493,7 +1493,7 @@ async def episode_chat_stream(
             if request.use_conversation_context and request.conversation_id:
                 conversation, conversation_context = await retrieve_episode_conversation_context(
                     conversation_id=request.conversation_id,
-                    user_id=current_user.id,
+                    user_id=str(current_user.id),
                     max_context_turns=request.max_context_turns if hasattr(request, 'max_context_turns') else 10
                 )
             
@@ -1689,7 +1689,7 @@ User Question: {request.message}
                 # Save user message to conversation
                 await save_conversation_message(
                     conversation_id=conversation_id,
-                    user_id=current_user.id,
+                    user_id=str(current_user.id),
                     role="user",
                     content=request.message,
                     metadata={
@@ -1721,7 +1721,7 @@ User Question: {request.message}
                 # Save assistant response to conversation
                 await save_conversation_message(
                     conversation_id=conversation_id,
-                    user_id=current_user.id,
+                    user_id=str(current_user.id),
                     role="assistant",
                     content=full_response,
                     metadata={
@@ -1825,7 +1825,7 @@ async def process_all_episodes(
     """
     try:
         # Generate processing batch ID
-        processing_id = f"batch_{int(time.time())}_{current_user.id[:8]}"
+        processing_id = f"batch_{int(time.time())}_{str(current_user.id)[:8]}"
         
         # Get list of episodes to process
         config = get_config()
@@ -1848,7 +1848,7 @@ async def process_all_episodes(
                         text(f"SELECT episode_id FROM episode WHERE episode_id IN ({placeholders})"), 
                         params  # Use dictionary parameters for SQLAlchemy
                     )
-                    existing_episodes = [row[0] for row in result]
+                    existing_episodes = result.scalars().all()
                     
                     if len(existing_episodes) != len(episode_ids):
                         missing_episodes = set(episode_ids) - set(existing_episodes)
@@ -1859,7 +1859,7 @@ async def process_all_episodes(
                 from sqlalchemy import text
                 with db_manager.get_connection() as conn:
                     result = conn.execute(text("SELECT episode_id FROM episode ORDER BY episode_id"))
-                    episode_ids = [row[0] for row in result]
+                    episode_ids = result.scalars().all()
                     logger.info(f"Retrieved {len(episode_ids)} episodes from database: {episode_ids[:10]}...")
             
         except Exception as e:
@@ -1884,7 +1884,7 @@ async def process_all_episodes(
             episode_ids=episode_ids,
             force_reprocess=request.force_reprocess,
             processing_id=processing_id,
-            user_id=current_user.id
+            user_id=str(current_user.id)
         )
         
         # Estimate completion time (rough calculation)
@@ -2456,3 +2456,174 @@ async def episode_health_check() -> Dict[str, Any]:
         },
         "timestamp": time.time()
     }
+
+
+@router.get("/conversation/{conversation_id}")
+async def get_conversation_history(
+    conversation_id: str,
+    limit: int = Query(default=50, ge=1, le=200, description="Maximum number of messages to retrieve"),
+    current_user: SimpleUser = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get conversation history for a specific conversation ID.
+    
+    Args:
+        conversation_id: The unique conversation ID
+        limit: Maximum number of messages to retrieve (default 50, max 200)
+        current_user: Authenticated user
+        
+    Returns:
+        Conversation history with messages and metadata
+    """
+    try:
+        # Get conversation storage
+        from src.conversation.storage import ConversationStorage
+        storage = ConversationStorage()
+        
+        # Get conversation info
+        conversation_info = await storage.get_conversation_info(conversation_id)
+        if not conversation_info:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Conversation {conversation_id} not found"
+            )
+        
+        # Check if user owns this conversation
+        if conversation_info.get('user_id') != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this conversation"
+            )
+        
+        # Get messages
+        messages = await storage.get_messages(conversation_id, limit=limit)
+        
+        # Format response
+        return {
+            "conversation_id": conversation_id,
+            "user_id": conversation_info.get('user_id'),
+            "created_at": conversation_info.get('created_at'),
+            "updated_at": conversation_info.get('updated_at'),
+            "metadata": conversation_info.get('metadata'),
+            "message_count": len(messages),
+            "messages": [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                    "metadata": msg.metadata
+                }
+                for msg in messages
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving conversation history: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve conversation history: {str(e)}"
+        )
+
+
+@router.post("/conversation/{conversation_id}/generate-title")
+async def generate_conversation_title(
+    conversation_id: str,
+    current_user: SimpleUser = Depends(get_current_user),
+    rag_manager: EpisodeRAGManager = Depends(get_rag_manager)
+) -> Dict[str, str]:
+    """
+    Generate a title for a conversation based on its content.
+    
+    Args:
+        conversation_id: The unique conversation ID
+        current_user: Authenticated user
+        rag_manager: RAG manager instance
+        
+    Returns:
+        Generated title for the conversation
+    """
+    try:
+        # Get conversation storage
+        from src.conversation.storage import ConversationStorage
+        storage = ConversationStorage()
+        
+        # Get conversation info
+        conversation_info = await storage.get_conversation_info(conversation_id)
+        if not conversation_info:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Conversation {conversation_id} not found"
+            )
+        
+        # Check if user owns this conversation
+        if conversation_info.get('user_id') != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this conversation"
+            )
+        
+        # Get first few messages to generate title
+        messages = await storage.get_messages(conversation_id, limit=10)
+        
+        if not messages:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Conversation has no messages to generate title from"
+            )
+        
+        # Build conversation summary for title generation
+        conversation_summary = "다음 대화의 핵심 주제를 15자 이내로 요약해주세요:\n"
+        for msg in messages[:6]:  # Use first 6 messages max
+            if msg.role == "user":
+                conversation_summary += f"사용자: {msg.content[:200]}...\n" if len(msg.content) > 200 else f"사용자: {msg.content}\n"
+            else:
+                conversation_summary += f"AI: {msg.content[:200]}...\n" if len(msg.content) > 200 else f"AI: {msg.content}\n"
+        
+        conversation_summary += "\n사용자의 질문을 중심으로 핵심 주제만 15자 이내로 답해주세요. 부가 설명 없이 제목만 답하세요."
+        
+        # Use LLM to generate title - simpler approach using langchain directly
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import HumanMessage
+        import os
+        
+        # Create OpenAI LLM instance
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.7,
+            max_tokens=50,
+            api_key=os.getenv("OPENAI_API_KEY")
+        )
+        
+        # Generate title
+        title_response = await llm.ainvoke([HumanMessage(content=conversation_summary)])
+        generated_title = title_response.content.strip()
+        
+        # Ensure title is not too long
+        if len(generated_title) > 30:
+            generated_title = generated_title[:30]
+        
+        # Update conversation metadata with title
+        metadata = conversation_info.get('metadata', {})
+        if isinstance(metadata, str):
+            import json
+            metadata = json.loads(metadata) if metadata else {}
+        metadata['title'] = generated_title
+        
+        # Save updated metadata
+        await storage.update_conversation_metadata(conversation_id, metadata)
+        
+        return {
+            "conversation_id": conversation_id,
+            "generated_title": generated_title
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating conversation title: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate conversation title: {str(e)}"
+        )

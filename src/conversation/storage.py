@@ -231,6 +231,27 @@ class ConversationStorage:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(self.executor, _delete)
     
+    async def update_conversation_metadata(self, conversation_id: str, metadata: Dict[str, Any]) -> None:
+        """
+        Update conversation metadata.
+        
+        Args:
+            conversation_id: Conversation ID
+            metadata: New metadata dictionary
+        """
+        def _update():
+            with sqlite3.connect(self.db_path) as conn:
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute('''
+                    UPDATE conversations 
+                    SET metadata = ?, updated_at = ?
+                    WHERE conversation_id = ?
+                ''', (json.dumps(metadata), now, conversation_id))
+                conn.commit()
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(self.executor, _update)
+    
     async def list_conversations(self, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         """
         List conversations for a user.
