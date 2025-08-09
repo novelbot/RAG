@@ -363,6 +363,11 @@ class EpisodeVectorStore(LoggerMixin):
                 total_inserted += len(all_chunks)
                 self.logger.info(f"Inserted {len(all_chunks)} episode chunks")
             
+            # Flush to ensure data is persisted
+            if total_inserted > 0:
+                self.collection.flush()
+                self.logger.info(f"Flushed collection after inserting {total_inserted} entries")
+            
             insert_result = {"inserted_count": total_inserted}
             
             # Update statistics
