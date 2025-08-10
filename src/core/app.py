@@ -95,7 +95,19 @@ async def initialize_components(config):
         # Add primary LLM provider
         if config.llm.provider and (config.llm.api_key or config.llm.provider.lower() == 'ollama'):
             try:
-                provider_enum = LLMProvider(config.llm.provider.lower())
+                # Map provider names to enum values
+                provider_map = {
+                    'google': 'google',
+                    'openai': 'openai',
+                    'claude': 'claude',
+                    'anthropic': 'claude',
+                    'ollama': 'ollama'
+                }
+                
+                provider_name = config.llm.provider.lower()
+                provider_enum_value = provider_map.get(provider_name, provider_name)
+                provider_enum = LLMProvider(provider_enum_value)
+                
                 provider_config = ProviderConfig(
                     provider=provider_enum,
                     config=config.llm,
@@ -103,6 +115,7 @@ async def initialize_components(config):
                     enabled=True
                 )
                 provider_configs.append(provider_config)
+                logger.info(f"Configured LLM provider: {config.llm.provider} -> {provider_enum_value}")
             except ValueError:
                 logger.warning(f"Unknown LLM provider: {config.llm.provider}")
         

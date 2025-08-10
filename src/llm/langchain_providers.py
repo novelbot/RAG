@@ -73,7 +73,7 @@ class LangChainLLMManager(LoggerMixin):
         provider = self.config.provider.lower()
         
         try:
-            if provider == "google" or provider == "gemini":
+            if provider == "google":
                 self._initialize_google_provider()
             elif provider == "openai":
                 self._initialize_openai_provider()

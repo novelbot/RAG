@@ -27,7 +27,7 @@ class LLMRole(Enum):
 class LLMProvider(Enum):
     """Supported LLM providers."""
     OPENAI = "openai"
-    GEMINI = "gemini"
+    GOOGLE = "google"
     CLAUDE = "claude"
     OLLAMA = "ollama"
 

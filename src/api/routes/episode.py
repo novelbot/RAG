@@ -563,8 +563,7 @@ async def ask_about_episodes(
             provider_map = {
                 "ollama": LLMProvider.OLLAMA,
                 "openai": LLMProvider.OPENAI,
-                "gemini": LLMProvider.GEMINI,
-                "google": LLMProvider.GEMINI,
+                "google": LLMProvider.GOOGLE,
                 "claude": LLMProvider.CLAUDE,
                 "anthropic": LLMProvider.CLAUDE
             }
@@ -1144,8 +1143,7 @@ async def generate_episode_chat_response(
         provider_map = {
             "ollama": LLMProvider.OLLAMA,
             "openai": LLMProvider.OPENAI,
-            "gemini": LLMProvider.GEMINI,
-            "google": LLMProvider.GEMINI,
+            "google": LLMProvider.GOOGLE,
             "claude": LLMProvider.CLAUDE,
             "anthropic": LLMProvider.CLAUDE
         }
@@ -1667,8 +1665,7 @@ User Question: {request.message}
                 provider_map = {
                     "ollama": LLMProvider.OLLAMA,
                     "openai": LLMProvider.OPENAI,
-                    "gemini": LLMProvider.GEMINI,
-                    "google": LLMProvider.GEMINI,
+                    "google": LLMProvider.GOOGLE,
                     "claude": LLMProvider.CLAUDE,
                     "anthropic": LLMProvider.CLAUDE
                 }

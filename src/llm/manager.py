@@ -283,7 +283,7 @@ class LangChainLLMManager(LoggerMixin):
                 )
                 self.providers[provider] = LangChainProviderAdapter(langchain_model, config)
                 
-            elif provider == LLMProvider.GEMINI:
+            elif provider == LLMProvider.GOOGLE:
                 langchain_model = ChatGoogleGenerativeAI(
                     model=config.model or "gemini-pro",
                     temperature=config.temperature,
