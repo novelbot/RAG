@@ -344,13 +344,36 @@ def register_routes(app: FastAPI):
         return {"message": "RAG Server API", "version": get_config().version}
 
 
-def run_server(host=None, port=None, reload=False):
-    """Run the server with uvicorn"""
+def run_server(host=None, port=None, reload=False, use_ssl=None):
+    """Run the server with uvicorn, optionally with SSL/TLS"""
     config = get_config()
+    
+    # Determine if SSL should be used
+    ssl_enabled = use_ssl if use_ssl is not None else config.api.ssl.enabled
     
     # Use provided values or fall back to config
     server_host = host if host is not None else config.api.host
-    server_port = port if port is not None else config.api.port
+    server_port = port if port is not None else (
+        config.api.https_port if ssl_enabled else config.api.port
+    )
+    
+    # Prepare SSL context if enabled
+    ssl_keyfile = None
+    ssl_certfile = None
+    ssl_ca_certs = None
+    
+    if ssl_enabled:
+        if not config.api.ssl.cert_file or not config.api.ssl.key_file:
+            logger.error("SSL enabled but certificate or key file not configured")
+            raise ValueError("SSL certificate and key files must be configured when SSL is enabled")
+        
+        ssl_certfile = config.api.ssl.cert_file
+        ssl_keyfile = config.api.ssl.key_file
+        ssl_ca_certs = config.api.ssl.ca_cert_file
+        
+        logger.info(f"Starting HTTPS server with SSL/TLS on {server_host}:{server_port}")
+    else:
+        logger.info(f"Starting HTTP server on {server_host}:{server_port}")
     
     if reload:
         # For reload mode, pass module path instead of app instance
@@ -360,7 +383,10 @@ def run_server(host=None, port=None, reload=False):
             host=server_host,
             port=server_port,
             log_level=config.logging.level.lower(),
-            reload=True
+            reload=True,
+            ssl_keyfile=ssl_keyfile,
+            ssl_certfile=ssl_certfile,
+            ssl_ca_certs=ssl_ca_certs
         )
     else:
         # Create app instance directly for production
@@ -370,6 +396,9 @@ def run_server(host=None, port=None, reload=False):
             host=server_host,
             port=server_port,
             log_level=config.logging.level.lower(),
+            ssl_keyfile=ssl_keyfile,
+            ssl_certfile=ssl_certfile,
+            ssl_ca_certs=ssl_ca_certs
         )
 
 

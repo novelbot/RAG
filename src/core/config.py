@@ -98,15 +98,26 @@ class AuthConfig(BaseModel):
     enable_row_level_security: bool = True
 
 
+class SSLConfig(BaseModel):
+    """SSL/TLS configuration for HTTPS"""
+    enabled: bool = False
+    cert_file: Optional[str] = None
+    key_file: Optional[str] = None
+    ca_cert_file: Optional[str] = None  # For custom CA certificates
+    verify_mode: str = "none"  # "none", "optional", "required"
+
+
 class APIConfig(BaseModel):
     """API server configuration"""
     host: str = "0.0.0.0"
     port: int = 8000
+    https_port: int = 8443  # Port for HTTPS when SSL is enabled
     workers: int = 1
     reload: bool = False
     debug: bool = False
     cors_origins: list = field(default_factory=lambda: ["*"])
     rate_limit: int = 100
+    ssl: SSLConfig = SSLConfig()  # SSL configuration
 
 
 class LoggingConfig(BaseModel):
@@ -285,6 +296,18 @@ class ConfigManager:
         # Auth overrides
         if os.getenv('SECRET_KEY'):
             self._config.auth.secret_key = os.getenv('SECRET_KEY', self._config.auth.secret_key)
+        
+        # SSL/TLS overrides
+        if os.getenv('SSL_ENABLED'):
+            self._config.api.ssl.enabled = os.getenv('SSL_ENABLED', '').lower() in ('true', '1', 'yes')
+        if os.getenv('SSL_CERT_FILE'):
+            self._config.api.ssl.cert_file = os.getenv('SSL_CERT_FILE')
+        if os.getenv('SSL_KEY_FILE'):
+            self._config.api.ssl.key_file = os.getenv('SSL_KEY_FILE')
+        if os.getenv('SSL_CA_CERT_FILE'):
+            self._config.api.ssl.ca_cert_file = os.getenv('SSL_CA_CERT_FILE')
+        if os.getenv('HTTPS_PORT'):
+            self._config.api.https_port = int(os.getenv('HTTPS_PORT', str(self._config.api.https_port)))
         
         # API overrides
         if os.getenv('API_HOST'):

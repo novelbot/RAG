@@ -71,6 +71,18 @@ node_modules/
 config.local.json
 secrets/
 
+# SSL/TLS Certificates - NEVER commit these!
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.truststore
+
 # Editor directories and files
 .idea
 .vscode

@@ -252,23 +252,58 @@ def test(ctx, component):
 
 @click.command()
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
-@click.option('--port', default=8000, help='Port to bind to')
+@click.option('--port', type=int, help='Port to bind to (default: 8000 for HTTP, 8443 for HTTPS)')
 @click.option('--reload', is_flag=True, help='Enable auto-reload')
+@click.option('--ssl/--no-ssl', default=None, help='Enable/disable SSL (overrides config)')
+@click.option('--ssl-cert', help='Path to SSL certificate file')
+@click.option('--ssl-key', help='Path to SSL private key file')
 @pass_cli_context
 @handle_exceptions
-def serve(ctx, host, port, reload):
+def serve(ctx, host, port, reload, ssl, ssl_cert, ssl_key):
     """Start the RAG server.
     
     Starts the FastAPI server with the specified host and port.
     Use --reload for development to enable auto-reload on code changes.
+    Use --ssl to enable HTTPS with SSL/TLS certificates.
+    
+    Examples:
+        rag-cli serve                           # Start with default settings
+        rag-cli serve --ssl                     # Start with HTTPS using config
+        rag-cli serve --port 8443 --ssl         # Start HTTPS on custom port
+        rag-cli serve --ssl-cert cert.pem --ssl-key key.pem  # Custom certificates
     """
-    ctx.log(f"Starting RAG server on {host}:{port}", "verbose")
-    console.print(f"[green]Starting RAG server on {host}:{port}[/green]")
+    config = ctx.config
+    
+    # Override SSL configuration if provided
+    if ssl_cert:
+        config.api.ssl.cert_file = ssl_cert
+    if ssl_key:
+        config.api.ssl.key_file = ssl_key
+    if ssl is not None:
+        config.api.ssl.enabled = ssl
+    
+    # Determine if SSL is enabled
+    use_ssl = ssl if ssl is not None else config.api.ssl.enabled
+    
+    # Determine port based on SSL if not explicitly provided
+    if port is None:
+        port = config.api.https_port if use_ssl else config.api.port
+    
+    # Log the server startup mode
+    protocol = "HTTPS" if use_ssl else "HTTP"
+    ctx.log(f"Starting RAG server on {protocol}://{host}:{port}", "verbose")
+    console.print(f"[green]Starting RAG server on {protocol}://{host}:{port}[/green]")
+    
+    if use_ssl:
+        console.print(f"[yellow]SSL Certificate: {config.api.ssl.cert_file}[/yellow]")
+        console.print(f"[yellow]SSL Key: {config.api.ssl.key_file}[/yellow]")
     
     # Override config
-    config = ctx.config
     config.api.host = host
-    config.api.port = port
+    if use_ssl:
+        config.api.https_port = port
+    else:
+        config.api.port = port
     config.api.reload = reload
     
     if reload:
@@ -277,10 +312,15 @@ def serve(ctx, host, port, reload):
     # Start server
     try:
         from src.core.app import run_server
-        run_server(host=host, port=port, reload=reload)
+        run_server(host=host, port=port, reload=reload, use_ssl=use_ssl)
     except ImportError as e:
         ctx.log(f"Failed to import server module: {e}", "error")
         raise click.ClickException("Server module not available")
+    except ValueError as e:
+        ctx.log(f"SSL configuration error: {e}", "error")
+        console.print("[red]Error: SSL certificate and key files must be configured when SSL is enabled[/red]")
+        console.print("[yellow]Hint: Use --ssl-cert and --ssl-key options or configure in .env file[/yellow]")
+        raise click.ClickException(str(e))
 
 
 # Import and register command groups

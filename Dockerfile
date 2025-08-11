@@ -29,9 +29,10 @@ RUN uv sync --frozen --no-dev
 # =============================================================================
 FROM python:3.11-slim as production
 
-# Install runtime system dependencies
+# Install runtime system dependencies including ca-certificates for HTTPS
 RUN apt-get update && apt-get install -y \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -50,19 +51,19 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy application code
 COPY --chown=raguser:raguser . .
 
-# Create required directories
-RUN mkdir -p data/uploads data/temp logs && \
-    chown -R raguser:raguser data logs
+# Create required directories including certs
+RUN mkdir -p data/uploads data/temp logs certs && \
+    chown -R raguser:raguser data logs certs
 
 # Switch to non-root user
 USER raguser
 
-# Expose API port
-EXPOSE 8000
+# Expose API ports (HTTP and HTTPS)
+EXPOSE 8000 8443
 
-# Health check
+# Health check (supports both HTTP and HTTPS based on SSL_ENABLED env var)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD sh -c 'if [ "$SSL_ENABLED" = "true" ]; then curl -k -f https://localhost:8443/health; else curl -f http://localhost:8000/health; fi' || exit 1
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

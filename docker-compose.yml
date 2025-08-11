@@ -12,13 +12,19 @@ services:
     container_name: rag-server
     ports:
       - "8000:8000"
+      - "8443:8443"  # HTTPS port
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
+      - ./certs:/app/certs:ro  # SSL certificates (read-only)
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
+      - SSL_ENABLED=${SSL_ENABLED:-false}
+      - SSL_CERT_FILE=${SSL_CERT_FILE:-certs/cert.pem}
+      - SSL_KEY_FILE=${SSL_KEY_FILE:-certs/key.pem}
+      - HTTPS_PORT=${HTTPS_PORT:-8443}
     depends_on:
       - mysql
       - milvus
@@ -26,7 +32,7 @@ services:
       - rag-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "sh", "-c", "if [ \"$$SSL_ENABLED\" = \"true\" ]; then curl -k -f https://localhost:8443/health; else curl -f http://localhost:8000/health; fi"]
       interval: 30s
       timeout: 10s
       retries: 3

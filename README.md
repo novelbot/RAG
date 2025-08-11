@@ -54,11 +54,25 @@ docker-compose up -d milvus
 ```
 
 6. 서버 시작:
+
+**HTTP 모드 (기본):**
 ```bash
 uv run rag-cli serve
 ```
-
 서버는 `http://localhost:8000`에서 사용할 수 있습니다.
+
+**HTTPS 모드 (SSL/TLS 활성화):**
+```bash
+# 먼저 SSL 인증서 생성 (개발용)
+./scripts/generate_ssl_cert.sh
+
+# HTTPS로 서버 시작
+uv run rag-cli serve --ssl
+
+# 또는 .env에서 SSL_ENABLED=true 설정 후
+uv run rag-cli serve
+```
+서버는 `https://localhost:8443`에서 사용할 수 있습니다.
 
 ## 데이터베이스 관리
 
@@ -218,6 +232,75 @@ uv run rag-cli data process --file document.txt
 uv run rag-cli data clear --confirm
 ```
 
+## HTTPS/SSL 설정
+
+### 개발 환경용 자체 서명 인증서
+
+1. **인증서 생성:**
+```bash
+# 스크립트를 사용한 자동 생성
+./scripts/generate_ssl_cert.sh
+```
+
+2. **환경 변수 설정 (.env):**
+```env
+SSL_ENABLED=true
+SSL_CERT_FILE=certs/cert.pem
+SSL_KEY_FILE=certs/key.pem
+HTTPS_PORT=8443
+```
+
+3. **서버 시작 옵션:**
+```bash
+# CLI 옵션 사용
+uv run rag-cli serve --ssl
+
+# 사용자 정의 인증서 경로
+uv run rag-cli serve --ssl --ssl-cert /path/to/cert.pem --ssl-key /path/to/key.pem
+
+# 사용자 정의 포트
+uv run rag-cli serve --ssl --port 8443
+```
+
+### 프로덕션 환경
+
+프로덕션 환경에서는 공인 인증 기관(CA)에서 발급한 유효한 SSL 인증서를 사용해야 합니다:
+
+1. **Let's Encrypt 사용 (무료):**
+```bash
+# certbot 설치 및 인증서 생성
+sudo certbot certonly --standalone -d your-domain.com
+```
+
+2. **환경 변수 설정:**
+```env
+SSL_ENABLED=true
+SSL_CERT_FILE=/etc/letsencrypt/live/your-domain.com/fullchain.pem
+SSL_KEY_FILE=/etc/letsencrypt/live/your-domain.com/privkey.pem
+```
+
+### Docker에서 HTTPS 사용
+
+```yaml
+# docker-compose.yml에서 환경 변수 설정
+environment:
+  - SSL_ENABLED=true
+  - SSL_CERT_FILE=certs/cert.pem
+  - SSL_KEY_FILE=certs/key.pem
+```
+
+### 테스트 파일 HTTP/HTTPS 지원
+
+테스트 파일은 자동으로 환경 설정에 따라 HTTP 또는 HTTPS를 사용합니다:
+
+```python
+from src.utils.test_config import create_test_client, get_server_url
+
+# 환경에 따라 자동으로 HTTP/HTTPS 선택
+async with create_test_client() as client:
+    response = await client.get("/health")
+```
+
 ## 설정
 
 ### 환경 변수
@@ -228,6 +311,12 @@ uv run rag-cli data clear --confirm
 # LLM 설정
 OPENAI_API_KEY=your-openai-key
 ANTHROPIC_API_KEY=your-anthropic-key
+
+# SSL/TLS 설정
+SSL_ENABLED=false  # true로 설정하여 HTTPS 활성화
+SSL_CERT_FILE=certs/cert.pem
+SSL_KEY_FILE=certs/key.pem
+HTTPS_PORT=8443
 
 # 데이터베이스 경로 (선택사항, 기본값 표시)
 AUTH_DB_PATH=auth.db
