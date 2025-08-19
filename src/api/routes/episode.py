@@ -1717,7 +1717,24 @@ User Question: {request.message}
                 
                 # Stream LLM response and collect full response
                 full_response = ""
-                async for chunk in llm_manager.providers[provider_enum].generate_stream_async(llm_request):
+                # Check if llm_manager has the correct streaming method
+                if hasattr(llm_manager, 'stream_async'):
+                    stream_method = llm_manager.stream_async
+                elif hasattr(llm_manager, 'generate_stream_async'):
+                    stream_method = llm_manager.generate_stream_async
+                elif provider_enum in llm_manager.providers:
+                    # Direct provider access as fallback
+                    provider = llm_manager.providers[provider_enum]
+                    if hasattr(provider, 'stream_async'):
+                        stream_method = provider.stream_async
+                    elif hasattr(provider, 'generate_stream_async'):
+                        stream_method = provider.generate_stream_async
+                    else:
+                        raise ValueError(f"Provider {provider_enum} does not have streaming support")
+                else:
+                    raise ValueError(f"Cannot find streaming method for provider {provider_enum}")
+                
+                async for chunk in stream_method(llm_request):
                     if chunk.content:
                         full_response += chunk.content
                         chunk_data = {

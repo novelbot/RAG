@@ -418,6 +418,64 @@ class LangChainLLMManager(LoggerMixin):
         """Synchronous wrapper for generate_async."""
         return asyncio.run(self.generate_async(request, preferred_provider))
     
+    async def stream_async(
+        self,
+        request: LLMRequest,
+        preferred_provider: Optional[LLMProvider] = None
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Stream response with automatic failover."""
+        errors = []
+        
+        # Try preferred provider first
+        if preferred_provider:
+            try:
+                provider = self.providers.get(preferred_provider)
+                if provider:
+                    start_time = time.time()
+                    async for chunk in provider.stream_async(request):
+                        yield chunk
+                    self.provider_stats[preferred_provider].update_success(
+                        time.time() - start_time
+                    )
+                    return
+            except Exception as e:
+                errors.append((preferred_provider, str(e)))
+                self.provider_stats[preferred_provider].update_failure(str(e))
+        
+        # Try other providers
+        for provider_enum in self.providers:
+            if provider_enum == preferred_provider:
+                continue
+                
+            try:
+                provider = self.providers[provider_enum]
+                start_time = time.time()
+                async for chunk in provider.stream_async(request):
+                    yield chunk
+                self.provider_stats[provider_enum].update_success(
+                    time.time() - start_time
+                )
+                return
+                
+            except Exception as e:
+                errors.append((provider_enum, str(e)))
+                self.provider_stats[provider_enum].update_failure(str(e))
+        
+        # All providers failed
+        error_msg = "All providers failed:\n"
+        for provider, error in errors:
+            error_msg += f"  {provider.value}: {error}\n"
+        raise LLMError(error_msg)
+    
+    async def generate_stream_async(
+        self,
+        request: LLMRequest,
+        preferred_provider: Optional[LLMProvider] = None
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Alias for stream_async for backward compatibility."""
+        async for chunk in self.stream_async(request, preferred_provider):
+            yield chunk
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics for all providers."""
         stats = {}
