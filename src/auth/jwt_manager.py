@@ -81,7 +81,7 @@ class JWTManager(LoggerMixin):
         # JWT Configuration
         self.secret_key = getattr(self.settings, 'auth', None) and getattr(self.settings.auth, 'secret_key', None) or 'default-secret-key-change-in-production'
         self.algorithm = getattr(self.settings, 'JWT_ALGORITHM', 'HS256')
-        self.access_token_expire_minutes = getattr(self.settings, 'ACCESS_TOKEN_EXPIRE_MINUTES', 15)
+        self.access_token_expire_minutes = getattr(self.settings, 'ACCESS_TOKEN_EXPIRE_MINUTES', 60)
         self.refresh_token_expire_days = getattr(self.settings, 'REFRESH_TOKEN_EXPIRE_DAYS', 30)
         
         # Token blacklist (in production, use Redis or database)

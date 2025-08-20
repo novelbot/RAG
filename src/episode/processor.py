@@ -27,9 +27,9 @@ class EpisodeProcessingConfig:
     min_content_length: int = 50     # Min characters to process
     embedding_model: Optional[str] = None  # Use embedding manager's default model
     enable_content_cleaning: bool = True
-    enable_chunking: bool = False    # Split long episodes into chunks
-    chunk_size: int = 2000          # Characters per chunk
-    chunk_overlap: int = 200        # Overlap between chunks
+    enable_chunking: bool = True    # Split long episodes into chunks
+    chunk_size: int = 10000          # Characters per chunk
+    chunk_overlap: int = 2000        # Overlap between chunks
     # Embedding batch processing settings (universal for all providers)
     embedding_batch_size: int = 50  # Batch size for embedding processing
     enable_batch_processing: bool = True  # Enable batch processing for embeddings
