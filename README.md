@@ -1,457 +1,583 @@
-# NovelBot RAG 서버
+# NovelBot RAG Server 🚀
 
-웹 소설 콘텐츠 처리 및 시맨틱 검색을 위한 고성능 RAG(Retrieval-Augmented Generation) 서버입니다.
+웹 소설 콘텐츠를 위한 고성능 RAG(Retrieval-Augmented Generation) 서버 - LangChain 기반 아키텍처와 실시간 스트리밍을 지원하는 차세대 AI 시스템
 
-## 주요 기능
+## 목차
 
-- 🚀 Milvus를 사용한 빠른 벡터 검색
-- 🤖 다중 LLM 지원 (OpenAI, Anthropic, Ollama)
-- 🔐 내장 인증 및 RBAC
-- 📊 메트릭 및 모니터링
-- 🌊 스트리밍 지원 RESTful API
-- 💾 메타데이터 저장을 위한 SQLite 데이터베이스
-- 💬 대화 컨텍스트 관리
+- [핵심 기능](#핵심-기능)
+- [시스템 아키텍처](#시스템-아키텍처)
+- [빠른 시작](#빠른-시작)
+- [API 문서](#api-문서)
+- [설정 가이드](#설정-가이드)
+- [고급 기능](#고급-기능)
+- [CLI 명령어](#cli-명령어)
+- [개발 가이드](#개발-가이드)
+- [문제 해결](#문제-해결)
+
+## 핵심 기능
+
+### 고성능 벡터 검색
+- **Milvus 벡터 데이터베이스**: 대규모 벡터 데이터의 실시간 검색
+- **다중 인덱스 지원**: IVF_FLAT, HNSW 등 최적화된 인덱싱
+- **메타데이터 필터링**: 에피소드, 소설별 정밀 검색
+
+### 다중 LLM 프로바이더
+- **Google Gemini 2.0 Flash**: 최신 고속 모델 지원
+- **OpenAI GPT-4**: GPT-4o-mini, GPT-4 모델 등 openAI 계열 모델 지원
+- **Ollama**: 로컬 LLM 실행 (Llama, Mistral 등)
+- **자동 폴백**: 프로바이더 장애 시 자동 전환
+
+### 실시간 스트리밍
+- **Server-Sent Events (SSE)**: 실시간 응답 스트리밍
+- **타이핑 효과**: 자연스러운 대화 경험
+- **프로그레스 트래킹**: 처리 상태 실시간 업데이트
+- **에러 스트리밍**: 오류도 실시간으로 전달
+
+### 대화 컨텍스트 관리
+- **세션 기반 대화**: conversation_id로 대화 연속성 유지
+- **컨텍스트 윈도우**: 자동 컨텍스트 크기 관리
+- **대화 영구 저장**: SQLite 기반 대화 기록 저장
+- **멀티턴 지원**: 여러 차례 대화 지원
+
+### 보안 및 인증
+- **JWT 토큰**: 60분 유효기간의 액세스 토큰
+- **RBAC**: 역할 기반 접근 제어
+- **비밀번호 해싱**: bcrypt 기반 안전한 비밀번호 저장
+- **HTTPS/SSL**: TLS 암호화 지원
+
+### 모니터링 및 디버깅
+- **실시간 메트릭**: 성능 및 사용량 추적
+- **헬스체크**: 시스템 상태 모니터링
+- **프롬프트 디버깅**: LLM 프롬프트 추적 및 분석
+- **토큰 사용량**: 비용 최적화를 위한 토큰 추적
+
+## 시스템 아키텍처
+
+```
+┌────────────────┐     ┌────────────────┐     ┌────────────────┐
+│    backend     │────▶│   FastAPI      │────▶│    Milvus      │
+│  (Streaming)   │ SSE │   Server       │     │  Vector DB     │
+└────────────────┘     └────────────────┘     └────────────────┘
+                              │
+                    ┌─────────┼─────────┐
+                    │         │         │
+              ┌─────▼──┐ ┌───▼───┐ ┌──▼──────────┐
+              │ SQLite │ │  LLM  │ │  LangChain  │
+              │  DBs   │ │  APIs │ │     RAG     │
+              └────────┘ └───────┘ └─────────────┘
+                   │          │            │
+         ┌─────────┼──────────┼────────────┤
+         │         │          │            │
+    ┌────▼───┐ ┌──▼───┐ ┌───▼───┐ ┌──────▼──────┐
+    │ Auth   │ │Metrics│ │ Conv. │ │ User Data   │
+    │  DB    │ │  DB   │ │  DB   │ │     DB      │
+    └────────┘ └───────┘ └───────┘ └─────────────┘
+```
 
 ## 빠른 시작
 
 ### 사전 요구사항
 
-- Python 3.11+
+- Python 3.11 이상
 - UV 패키지 매니저
-- Docker (Milvus용)
+- Docker & Docker Compose
+- 8GB 이상 RAM 권장
 
-### 설치
+### 1. 프로젝트 클론
 
-1. 레포지토리 클론:
 ```bash
-git clone <repository-url>
-cd novelbot_RAG_server
+git clone https://github.com/novelbot/RAG.git
+cd RAG
 ```
 
-2. 의존성 설치:
+### 2. UV 설치 및 의존성 설정
+
 ```bash
+# UV 설치 (없는 경우)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 의존성 설치
 uv sync
 ```
 
-3. 환경 변수 설정:
-```bash
-cp .env.example .env
-# .env 파일을 편집하여 설정
-```
+### 3. 환경 변수 설정
 
-4. 데이터베이스 초기화:
-```bash
-# 모든 SQLite 데이터베이스 초기화
-uv run rag-cli database init --sqlite
+`.env` 파일 생성:
 
-# 또는 특정 데이터베이스 초기화
-uv run rag-cli database init --sqlite auth metrics
-```
+```env
+# LLM 설정 예시
+LLM_PROVIDER=Google
+LLM_MODEL=gemini-2.0-flash
+GOOGLE_API_KEY=your-google-api-key
 
-5. Milvus(벡터 데이터베이스) 시작:
+# 임베딩 설정 예시
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_API_KEY=your-openai-api-key
+
+# Milvus 설정 예시
+MILVUS_HOST=localhost
+MILVUS_PORT=19530
+MILVUS_USER=root
+MILVUS_PASSWORD=yourpassword
+
+# 서버 설정
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# JWT 비밀키
+SECRET_KEY=your-secret-key-here
+
+### 4. Milvus 벡터 데이터베이스 시작
+
 ```bash
 docker-compose up -d milvus
 ```
 
-6. 서버 시작:
+### 5. 데이터베이스 초기화
 
-**HTTP 모드 (기본):**
+```bash
+# 모든 SQLite 데이터베이스 초기화
+uv run rag-cli database init --sqlite
+
+# 기본 관리자 계정 생성됨:
+# Username: admin
+# Password: admin123
+```
+
+### 6. 서버 시작
+
 ```bash
 uv run rag-cli serve
+# 서버 주소: http://localhost:8000
 ```
-서버는 `http://localhost:8000`에서 사용할 수 있습니다.
 
-**HTTPS 모드 (SSL/TLS 활성화):**
+### 7. API 테스트
+
 ```bash
-# 먼저 SSL 인증서 생성 (개발용)
-./scripts/generate_ssl_cert.sh
-
-# HTTPS로 서버 시작
-uv run rag-cli serve --ssl
-
-# 또는 .env에서 SSL_ENABLED=true 설정 후
-uv run rag-cli serve
-```
-서버는 `https://localhost:8443`에서 사용할 수 있습니다.
-
-## 데이터베이스 관리
-
-### SQLite 데이터베이스
-
-시스템은 다양한 목적으로 여러 SQLite 데이터베이스를 사용합니다:
-
-- **auth.db**: 사용자 인증 및 권한 부여
-- **metrics.db**: 시스템 메트릭 및 성능 추적
-- **conversations.db**: 대화 기록 저장
-- **user_data.db**: 사용자별 데이터 저장
-
-### GitHub 버전 관리
-
-SQLite 데이터베이스(`.db` 파일)는 설계상 Git에서 추적되지 **않습니다**. 대신:
-
-1. **스키마 파일**은 `database/schemas/`에서 버전 관리됩니다:
-   - `auth.sql`: 인증 데이터베이스 스키마
-   - `metrics.sql`: 메트릭 추적 스키마
-   - `conversations.sql`: 대화 기록 스키마
-   - `user_data.sql`: 사용자 데이터 스키마
-
-2. **초기화**: 새로운 개발자는 다음을 실행해야 합니다:
-   ```bash
-   # 스키마로 모든 데이터베이스 초기화
-   uv run rag-cli database init --sqlite
-   
-   # 또는 독립 실행형 스크립트 사용
-   python scripts/init_databases.py
-   ```
-
-3. **백업 및 복원**:
-   ```bash
-   # 데이터베이스 백업
-   uv run rag-cli database backup --output backup.sql.gz
-   
-   # 데이터베이스 복원
-   uv run rag-cli database restore --input backup.sql.gz
-   ```
-
-### 새로운 개발자를 위한 데이터베이스 설정
-
-1. 레포지토리를 클론한 후:
-   ```bash
-   # 필요한 모든 데이터베이스 생성
-   uv run rag-cli database init --sqlite --force
-   ```
-
-2. 이 명령은:
-   - 올바른 위치에 데이터베이스 파일 생성
-   - SQL 파일에서 스키마 적용
-   - 기본 관리자 사용자 생성 (사용자명: `admin`, 비밀번호: `admin123`)
-   - 초기 설정 구성
-
-3. **중요**: 첫 로그인 후 기본 관리자 비밀번호를 변경하세요!
-
-### 스키마 업데이트
-
-데이터베이스 스키마를 수정할 때:
-
-1. `database/schemas/`의 스키마 파일 업데이트
-2. 필요한 경우 현재 데이터 내보내기:
-   ```bash
-   sqlite3 auth.db .dump > auth_backup.sql
-   ```
-3. 새 스키마로 데이터베이스 재초기화:
-   ```bash
-   uv run rag-cli database init --sqlite auth --force
-   ```
-4. 필요한 경우 데이터 복원
-
-## API 문서
-
-### 인증
-
-기본 관리자 자격 증명:
-- 사용자명: `admin`
-- 비밀번호: `admin123`
-
-로그인 엔드포인트:
-```bash
+# 로그인
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "admin123"}'
-```
 
-### 에피소드 처리
+# 토큰을 받아서 이후 요청에 사용
+export TOKEN="받은_토큰_값"
 
-```bash
-# 에피소드 업로드 및 처리
-curl -X POST http://localhost:8000/api/v1/episode/process \
-  -H "Authorization: Bearer <token>" \
-  -F "file=@episode.txt"
-```
-
-### RAG로 채팅
-
-```bash
-# 컨텍스트와 함께 채팅
+# 채팅 요청
 curl -X POST http://localhost:8000/api/v1/episode/chat \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "여기에 질문을 입력하세요",
+    "message": "안녕하세요, 테스트 메시지입니다.",
     "episode_ids": [],
     "novel_ids": []
   }'
 ```
 
-## CLI 명령어
+## API 문서
 
-### 데이터베이스 관리
+### 인증 API (`/api/v1/auth`)
 
-```bash
-# SQLite 데이터베이스 초기화
-uv run rag-cli database init --sqlite
+#### 로그인
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
 
-# 특정 데이터베이스 초기화
-uv run rag-cli database init --sqlite auth metrics
+{
+  "username": "admin",
+  "password": "admin123"
+}
 
-# 강제 재초기화 (기존 데이터 삭제!)
-uv run rag-cli database init --sqlite --force
-
-# 데이터베이스 상태
-uv run rag-cli database status
-
-# 데이터베이스 연결 테스트
-uv run rag-cli database test
-
-# 데이터베이스 백업
-uv run rag-cli database backup
-
-# 데이터베이스 복원
-uv run rag-cli database restore --input backup.sql.gz
+Response:
+{
+  "access_token": "eyJhbGc...",
+  "refresh_token": "eyJhbGc...",
+  "token_type": "bearer",
+  "expires_in": 3600
+}
 ```
 
-### 사용자 관리
+#### 사용자 등록
+```http
+POST /api/v1/auth/register
+Content-Type: application/json
 
-```bash
-# 사용자 생성
-uv run rag-cli user create
-
-# 사용자 목록
-uv run rag-cli user list
-
-# 비밀번호 재설정
-uv run rag-cli user reset-password --username admin
+{
+  "username": "newuser",
+  "email": "user@example.com",
+  "password": "securepassword123"
+}
 ```
 
-### 데이터 관리
+#### 토큰 갱신
+```http
+POST /api/v1/auth/refresh
+Content-Type: application/json
 
-```bash
-# 문서 처리
-uv run rag-cli data process --file document.txt
-
-# 모든 데이터 삭제
-uv run rag-cli data clear --confirm
+{
+  "refresh_token": "eyJhbGc..."
+}
 ```
 
-## HTTPS/SSL 설정
+#### 현재 사용자 정보
+```http
+GET /api/v1/auth/me
+Authorization: Bearer {token}
 
-### 개발 환경용 자체 서명 인증서
-
-1. **인증서 생성:**
-```bash
-# 스크립트를 사용한 자동 생성
-./scripts/generate_ssl_cert.sh
+Response:
+{
+  "user_id": 1,
+  "username": "admin",
+  "email": "admin@example.com",
+  "roles": ["admin"],
+  "created_at": "2024-01-01T00:00:00Z"
+}
 ```
 
-2. **환경 변수 설정 (.env):**
+### 에피소드 API (`/api/v1/episode`)
+
+#### 일반 채팅 (JSON 응답)
+```http
+POST /api/v1/episode/chat
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "message": "주인공의 첫 등장 장면을 설명해주세요",
+  "episode_ids": [1, 2, 3],
+  "novel_ids": [],
+  "conversation_id": "optional-uuid",
+  "use_conversation_context": true
+}
+
+Response:
+{
+  "response": "주인공은 첫 에피소드에서...",
+  "conversation_id": "uuid",
+  "sources": [...],
+  "tokens_used": 1234
+}
+```
+
+#### 스트리밍 채팅 (SSE)
+```http
+POST /api/v1/episode/chat/stream
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "message": "이야기를 계속 들려주세요",
+  "conversation_id": "existing-uuid",
+  "use_conversation_context": true,
+  "episode_ids": [],
+  "novel_ids": []
+}
+
+Response (Server-Sent Events):
+data: {"type": "start", "conversation_id": "uuid"}
+data: {"type": "token", "content": "주인공은"}
+data: {"type": "token", "content": " 첫"}
+data: {"type": "token", "content": " 에피소드에서"}
+data: {"type": "end", "tokens_used": 1234}
+```
+
+#### 벡터 검색
+```http
+POST /api/v1/episode/search
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "query": "검색할 내용",
+  "episode_ids": [],
+  "novel_ids": [],
+  "limit": 5,
+  "similarity_threshold": 0.7
+}
+
+Response:
+{
+  "results": [
+    {
+      "content": "매칭된 텍스트...",
+      "episode_id": 1,
+      "similarity_score": 0.89,
+      "metadata": {...}
+    }
+  ],
+  "total": 5
+}
+```
+
+#### 대화 조회
+```http
+GET /api/v1/episode/conversation/{conversation_id}
+Authorization: Bearer {token}
+
+Response:
+{
+  "conversation_id": "uuid",
+  "messages": [
+    {
+      "role": "user",
+      "content": "안녕하세요",
+      "timestamp": "2024-01-01T00:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "안녕하세요! 무엇을 도와드릴까요?",
+      "timestamp": "2024-01-01T00:00:01Z"
+    }
+  ],
+  "created_at": "2024-01-01T00:00:00Z"
+}
+```
+
+#### 프롬프트 디버깅
+```http
+GET /api/v1/episode/debug/prompt/{conversation_id}
+Authorization: Bearer {token}
+
+Response:
+{
+  "conversation_id": "uuid",
+  "last_prompt": {
+    "system": "You are a helpful assistant...",
+    "messages": [...],
+    "context": "Retrieved documents...",
+    "total_tokens": 2345
+  },
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
+#### 에피소드 일괄 처리
+```http
+POST /api/v1/episode/process-all
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "filter_episode_ids": [1, 2, 3],
+  "chunk_size": 500,
+  "overlap": 50
+}
+
+Response:
+{
+  "processed": 3,
+  "success": 3,
+  "failed": 0,
+  "details": [...]
+}
+```
+
+### 모니터링 API
+
+#### 헬스체크
+```http
+GET /health
+
+Response:
+{
+  "status": "healthy"
+}
+```
+
+#### 상세 시스템 상태
+```http
+GET /api/v1/monitoring/health
+
+Response:
+{
+  "status": "healthy",
+  "services": {
+    "database": "connected",
+    "milvus": "connected",
+    "llm": "available"
+  },
+  "metrics": {
+    "cpu_usage": 23.5,
+    "memory_usage": 45.2,
+    "active_connections": 10
+  }
+}
+```
+
+## 설정 가이드
+
+### LLM 프로바이더 설정
+
+#### Google Gemini (권장)
 ```env
-SSL_ENABLED=true
-SSL_CERT_FILE=certs/cert.pem
-SSL_KEY_FILE=certs/key.pem
-HTTPS_PORT=8443
+LLM_PROVIDER=Google
+LLM_MODEL=gemini-2.0-flash
+GOOGLE_API_KEY=your-google-api-key
 ```
 
-3. **서버 시작 옵션:**
-```bash
-# CLI 옵션 사용
-uv run rag-cli serve --ssl
-
-# 사용자 정의 인증서 경로
-uv run rag-cli serve --ssl --ssl-cert /path/to/cert.pem --ssl-key /path/to/key.pem
-
-# 사용자 정의 포트
-uv run rag-cli serve --ssl --port 8443
-```
-
-### 프로덕션 환경
-
-프로덕션 환경에서는 공인 인증 기관(CA)에서 발급한 유효한 SSL 인증서를 사용해야 합니다:
-
-1. **Let's Encrypt 사용 (무료):**
-```bash
-# certbot 설치 및 인증서 생성
-sudo certbot certonly --standalone -d your-domain.com
-```
-
-2. **환경 변수 설정:**
+#### OpenAI GPT
 ```env
-SSL_ENABLED=true
-SSL_CERT_FILE=/etc/letsencrypt/live/your-domain.com/fullchain.pem
-SSL_KEY_FILE=/etc/letsencrypt/live/your-domain.com/privkey.pem
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=your-openai-api-key
 ```
 
-### Docker에서 HTTPS 사용
-
-```yaml
-# docker-compose.yml에서 환경 변수 설정
-environment:
-  - SSL_ENABLED=true
-  - SSL_CERT_FILE=certs/cert.pem
-  - SSL_KEY_FILE=certs/key.pem
+#### Ollama (로컬)
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3.2
+OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-### 테스트 파일 HTTP/HTTPS 지원
+### 임베딩 프로바이더 설정
 
-테스트 파일은 자동으로 환경 설정에 따라 HTTP 또는 HTTPS를 사용합니다:
-
-```python
-from src.utils.test_config import create_test_client, get_server_url
-
-# 환경에 따라 자동으로 HTTP/HTTPS 선택
-async with create_test_client() as client:
-    response = await client.get("/health")
+#### OpenAI Embeddings
+```env
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_API_KEY=your-openai-api-key
 ```
 
-## 설정
+#### Google Embeddings
+```env
+EMBEDDING_PROVIDER=Google
+EMBEDDING_MODEL=gemini-embedding-001
+GOOGLE_API_KEY=your-google-api-key
+```
 
-### 환경 변수
+#### Ollama Embeddings (로컬)
+```env
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=bge-m3
+# 다른 옵션: nomic-embed-text, mxbai-embed-large
+```
 
-주요 환경 변수 (`.env.example` 참조):
+### RAG 설정
 
 ```env
-# LLM 설정
-OPENAI_API_KEY=your-openai-key
-ANTHROPIC_API_KEY=your-anthropic-key
+# 검색 설정
+RAG_RETRIEVAL_K=5              # 검색할 문서 수
+RAG_SIMILARITY_THRESHOLD=0.7   # 최소 유사도 점수
 
-# SSL/TLS 설정
-SSL_ENABLED=false  # true로 설정하여 HTTPS 활성화
-SSL_CERT_FILE=certs/cert.pem
-SSL_KEY_FILE=certs/key.pem
-HTTPS_PORT=8443
+# 벡터 차원 (자동 감지되지만 수동 설정 가능)
+# VECTOR_DIMENSION=1536  # OpenAI
+# VECTOR_DIMENSION=768   # Google
+```
 
-# 데이터베이스 경로 (선택사항, 기본값 표시)
+### 데이터베이스 설정
+
+```env
+# SQLite 경로 (기본값)
 AUTH_DB_PATH=auth.db
 METRICS_DB_PATH=metrics.db
 CONVERSATIONS_DB_PATH=data/conversations.db
 USER_DATA_DB_PATH=data/user_data.db
 
-# Milvus 설정
-MILVUS_HOST=localhost
-MILVUS_PORT=19530
-
-# 서버 설정
-HOST=0.0.0.0
-PORT=8000
-WORKERS=4
+# MySQL (예시)
+DB_DRIVER=mysql+pymysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=novelbot
+DB_USER=dbuser
+DB_PASSWORD=dbpassword
 ```
 
-### 설정 파일
+## CLI 명령어
 
-`config.json`의 고급 설정:
+### 서버 관리
 
-```json
-{
-  "database": {
-    "driver": "sqlite",
-    "name": "auth.db"
-  },
-  "milvus": {
-    "host": "localhost",
-    "port": 19530,
-    "collection_name": "novelbot_episodes"
-  },
-  "embedding": {
-    "provider": "openai",
-    "model": "text-embedding-3-small",
-    "dimension": 1536
-  },
-  "llm": {
-    "provider": "openai",
-    "model": "gpt-4o-mini",
-    "temperature": 0.7
-  }
-}
+```bash
+# 서버 시작 (기본)
+uv run rag-cli serve
+
+# 특정 포트로 시작
+uv run rag-cli serve --port 8080
+
+# 디버그 모드
+uv run rag-cli serve --debug
 ```
 
-## 개발
+### 데이터베이스 관리
+
+```bash
+# 데이터베이스 초기화
+uv run rag-cli database init --sqlite
+
+# 특정 데이터베이스만 초기화
+uv run rag-cli database init --sqlite auth metrics
+
+# 데이터베이스 상태 확인
+uv run rag-cli database status
+
+# 강제 재초기화 (주의: 모든 데이터 삭제)
+uv run rag-cli database init --sqlite --force
+```
+
+
+## 개발 가이드
 
 ### 프로젝트 구조
 
 ```
 novelbot_RAG_server/
-├── database/           # 데이터베이스 스키마
-│   └── schemas/       # SQL 스키마 파일
-├── scripts/           # 유틸리티 스크립트
-├── src/              # 소스 코드
-│   ├── api/          # API 라우트
-│   ├── auth/         # 인증
-│   ├── cli/          # CLI 명령어
-│   ├── core/         # 핵심 기능
-│   ├── database/     # 데이터베이스 유틸리티
-│   ├── embedding/    # 임베딩 제공자
-│   ├── llm/          # LLM 제공자
-│   └── rag/          # RAG 파이프라인
-├── data/             # 데이터 디렉토리 (gitignored)
-├── *.db              # SQLite 데이터베이스 (gitignored)
-└── .env              # 환경 변수 (gitignored)
+├── src/
+│   ├── api/              # API 엔드포인트
+│   │   ├── routes/       # 라우트 정의
+│   │   │   ├── auth.py   # 인증 API
+│   │   │   ├── episode.py # 에피소드 API
+│   │   │   └── monitoring.py # 모니터링 API
+│   │   └── middleware.py # 미들웨어
+│   │
+│   ├── auth/             # 인증 시스템
+│   │   ├── jwt_manager.py # JWT 토큰 관리
+│   │   ├── rbac.py      # 역할 기반 접근 제어
+│   │   └── models.py    # 인증 모델
+│   │
+│   ├── llm/              # LLM 프로바이더
+│   │   ├── langchain_providers.py # LangChain 통합
+│   │   └── providers/    # 개별 프로바이더
+│   │
+│   ├── embedding/        # 임베딩 프로바이더
+│   │   ├── factory.py    # 임베딩 팩토리
+│   │   └── providers/    # 개별 프로바이더
+│   │
+│   ├── rag/              # RAG 파이프라인
+│   │   ├── langchain_rag.py # LangChain RAG
+│   │   ├── vector_search_engine.py # 벡터 검색
+│   │   └── context_retriever.py # 컨텍스트 검색
+│   │
+│   ├── milvus/           # Milvus 통합
+│   │   ├── client.py     # Milvus 클라이언트
+│   │   ├── collection.py # 컬렉션 관리
+│   │   └── search.py     # 검색 로직
+│   │
+│   ├── conversation/     # 대화 관리
+│   │   └── storage.py    # 대화 저장소
+│   │
+│   └── core/             # 핵심 기능
+│       ├── config.py     # 설정 관리
+│       ├── logging.py    # 로깅 설정
+│       └── database.py   # 데이터베이스 연결
+│
+├── database/             # 데이터베이스 스키마
+│   └── schemas/         # SQL 스키마 파일
+│
+├── scripts/             # 유틸리티 스크립트
+│   ├── generate_ssl_cert.sh # SSL 인증서 생성
+│   └── init_databases.py # DB 초기화
+│
+├── templates/           # HTML 템플릿
+│   └── test_streaming.html # 스트리밍 테스트 UI
+│
+├── docker-compose.yml   # Docker 구성
+├── pyproject.toml      # 프로젝트 설정
+└── .env                # 환경 변수
 ```
-
-### 테스팅
-
-```bash
-# 테스트 실행
-uv run pytest
-
-# 커버리지와 함께 실행
-uv run pytest --cov=src
-
-# 특정 모듈 테스트
-uv run pytest tests/test_auth.py
-```
-
-### Docker 배포
-
-```bash
-# 이미지 빌드
-docker build -t novelbot-rag .
-
-# docker-compose로 실행
-docker-compose up -d
-```
-
-## 문제 해결
-
-### 데이터베이스 문제
-
-1. **데이터베이스 잠김 오류**:
-   - 열려 있는 SQLite 연결을 모두 닫기
-   - 서버 재시작
-
-2. **스키마 불일치**:
-   ```bash
-   # 데이터베이스 재초기화
-   uv run rag-cli database init --sqlite --force
-   ```
-
-3. **테이블 누락**:
-   ```bash
-   # 데이터베이스 상태 확인
-   uv run rag-cli database status
-   
-   # 필요한 경우 재초기화
-   uv run rag-cli database init --sqlite
-   ```
-
-### Milvus 연결 문제
-
-1. Docker가 실행 중인지 확인:
-   ```bash
-   docker ps
-   ```
-
-2. Milvus 시작:
-   ```bash
-   docker-compose up -d milvus
-   ```
-
-3. Milvus 로그 확인:
-   ```bash
-   docker-compose logs milvus
-   ```
-
-## 기여
-
-기여 가이드라인은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참조하세요.
 
 ## 라이선스
 
-[라이선스 정보]
+이 프로젝트는 MIT 라이선스 하에 배포됩니다.
+
+---
+
+**NovelBot RAG Server**
